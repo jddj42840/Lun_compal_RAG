@@ -11,7 +11,7 @@ from textwrap import dedent
 from openai import OpenAI
 from logging_colors import logger
 from dotenv import load_dotenv
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+from langchain_openai import ChatOpenAI
 from langchain_core.output_parsers import StrOutputParser
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate
@@ -25,13 +25,12 @@ port = os.getenv("PORT", "5001")
 client = OpenAI(
     base_url=os.getenv("OPENAI_API_BASE", f"{protocal}://{url}:{port}/v1"), 
     api_key=os.getenv("OPENAI_API_KEY", "sk-111111111111111111111111111111111111111111111111"))
-# qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://25.17.79.112:6333"))
-qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://192.168.1.72:6333"))
+qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://25.17.79.112:6333"))
 qdrant_client.set_model("intfloat/multilingual-e5-large")
 
 
 class Functional:
-    def get_model_list():
+    def get_model_list() -> list:
         try:
             text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list", timeout=(10, None)).text)["model_names"]
             except_file = ["wget-log", "output.log", "Octopus-v2", "Phi-3-mini-4k-instruct", ]
@@ -46,7 +45,7 @@ class Functional:
             return ["None"]
 
     # use linux non-root docker desktop as default method
-    def start_qdrant_db(base_url: str = f"unix:///home/{os.getlogin()}/.docker/desktop/docker.sock"):
+    def start_qdrant_db(base_url: str = f"unix:///home/{os.getlogin()}/.docker/desktop/docker.sock") -> None :
         try:
             client = docker.DockerClient(base_url=base_url)
         except Exception as e:
@@ -76,8 +75,14 @@ class Functional:
                 logger.error(str(e))
                 gr.Error("Failed to start qdrant container.")
                 return False
+        
+        collection_list = []
+        collections = qdrant_client.get_collections()
+        for collection in collections:
+            for c in list(collection[1]):
+                collection_list.append(c.name)
 
-        if "compal_rag" not in qdrant_client.get_collections():
+        if "compal_rag" not in collection_list:
             qdrant_client.recreate_collection(
                 collection_name="compal_rag", 
                 vectors_config=qdrant_client.get_fastembed_vector_params(),
@@ -88,17 +93,19 @@ class Functional:
 
     def send_query(text_dropdown: str, text: str, output_box: gr.Chatbot):
         
-        if text_dropdown == None:
-            raise gr.Error("Please selet a language model")
-        
+        if Functional.get_model() == 'None':
+            gr.Warning("Please selet a language model")
+            return False
+
         if text == '':
             raise gr.Error("Please enter a question")
         
+        output_box.append([text, ""])
         chain = chat_api().setup_model(search_content=text)
         start = time.time()
-        for chunk in chain.stream(text):
-            output_box.append([text, chunk])
-            yield "", chunk
+        for chunk in chain.stream("#zh-tw" + text):
+            output_box[-1][1] += chunk
+            yield "", output_box
         end = time.time()
         logger.info(f"Time cost: {end-start}")
 
@@ -217,6 +224,10 @@ class Functional:
             yield "Failed unload model."
             raise gr.Error(f"request failed: {str(e)}")
 
+    def get_model() -> str:
+        response = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/info", timeout=(10, None)).text)
+        return response["model_name"]
+
 
 class chat_api:
     """
@@ -226,18 +237,19 @@ class chat_api:
     """
     
     RAG_SYS_PROMPT = dedent("""
-        你是一個客服聊天機器人，提供的資料為連續或p近似的資料，你必須參考以下不同段落中的資訊來回答問題，請注意段落中有可能會有多餘的換行，若有遇到則將上下文連貫起來。
-        如果你不知道答案，可以說「抱歉，我沒有任何資訊」，不得創造答案，嘗試使用正式語言和專有名詞，保留原文格式（如標題、標點符號、列舉清單（如1-1、1-2...）等）。
+        你是一個客服聊天機器人，以下提供的資料為連續或近似的資料，你必須參考以下不同段落中的資訊來回答問題，請注意段落中有可能會有多餘的換行，若有遇到則將上下文連貫起來。
+        如果你不知道答案，可以說「抱歉，我沒有任何資訊」，不得創造答案。
+        嘗試使用正式語言和專有名詞，保留原文格式（如標題、標點符號、列舉清單（如1-1、1-2...）等）。
         輸出必須使用繁體中文，並且在回答的最後說明參考檔案名稱和頁碼。
     """)
     
-    def __init__(self, streaming: bool = True, temperature: float = 0.7, role: str = "assistant", **kwargs):
+    def __init__(self, streaming: bool = True, temperature: float = 0.7, role: str = "assistant"):
         self.temperature = temperature
         self.role = role
         self.system_prompt_prefix = self.RAG_SYS_PROMPT
         self.streaming = streaming
         
-    def setup_model(self, search_content: str = "", **kwargs):
+    def setup_model(self, search_content: str = "", **kwargs) -> ChatOpenAI:
         self.history_data = []
         result = qdrant_client.query(
             collection_name="compal_rag",
@@ -248,10 +260,10 @@ class chat_api:
         
         prompt_template = f"""{self.system_prompt_prefix}
         
-        {{context}}
+        {{context}} 
 
         Question: {{question}}"""
-
+        
         self.chain = (
             {"context": lambda x: content, "question": RunnablePassthrough()}
             | ChatPromptTemplate.from_template(prompt_template)

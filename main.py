@@ -36,6 +36,5 @@ with gr.Blocks() as demo:
     clear_button.add([output_box, msg_box])
     
 if __name__ == "__main__":
-    # utils.Functional.start_qdrant_db(base_url="ssh://raspi@25.17.79.112")
-    utils.Functional.start_qdrant_db(base_url="ssh://raspi@192.168.1.72")
+    utils.Functional.start_qdrant_db(base_url="ssh://raspi@25.17.79.112")
     demo.launch(server_port=7861)
