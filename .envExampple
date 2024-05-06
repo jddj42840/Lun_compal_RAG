@@ -1,0 +1,5 @@
+protocal=<protocal>
+url=<llm ipv4>
+port=<api_port>
+qdrant_client="http://<qdrant_container_ipv4>:6333"
+

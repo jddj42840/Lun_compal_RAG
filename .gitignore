@@ -1,0 +1,8 @@
+.env
+INKS.zip
+Pipfile
+*.csv
+qdrant_data
+ppt_to_pdf
+INKS
+.vscode

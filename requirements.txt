@@ -1,0 +1,10 @@
+langchain
+langchain_community 
+langchain-openai
+qdrant-client 
+docker 
+python-dotenv
+gradio
+fastembed
+paramiko # remote shh package
+pypdf2

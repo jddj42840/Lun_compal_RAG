@@ -1,0 +1,1 @@
+{"uploaded_file": [], "model_config": {"2&7&8B": {"load_in_4bit": false, "load_in_8bit": true, "loader": "Transformers"}, "13B": {"load_in_4bit": true, "load_in_8bit": false, "loader": "Transformers"}, "gguf": {"n_ctx": 32768, "n_gpu_layers": 16, "alpha_value": 1.75, "streaming_llm": true, "loader": "llama.cpp"}}}
