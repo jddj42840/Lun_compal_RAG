@@ -137,10 +137,11 @@ class Functional:
                     file_path = os.path.join("ppt_to_pdf", full_file_name.replace(file_extension, ".pdf"))
                 except Exception as e:
                     logger.error(f"An error occurred: {str(e)}")
-                    gr.Error(f"An error occurred: {str(e)}")
+                    raise gr.Error(f"An error occurred: {str(e)}")
             else:
                 logger.error(f"File {full_file_name} is not support. Ignore it...")
-                gr.Error(f"File {full_file_name} is not support. Ignore it...")
+                gr.Warning(f"File {full_file_name} is not support. Ignore it...")
+                yield f"File {full_file_name} is not support."
                 continue
             
             config_info["uploaded_file"].append(full_file_name)
@@ -166,6 +167,7 @@ class Functional:
         
         if re.search(r"gguf", model):
             args = model_data["gguf"]
+            gr.Info("gguf格式的模型可能因為評估題詞而載入過久,請謹慎使用.")
         elif re.search(r"2b|2B|6b|6B|7b|7B|8b|8B|128k", model):
             args = model_data["2&7&8B"]
         elif re.search(r"13b|13B", model):

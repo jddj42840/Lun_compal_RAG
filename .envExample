@@ -1,0 +1,6 @@
+protocal=<protocal>
+url=<llm_api_ipv4>
+port=<llm_api_port>
+QDRANT_URL="http://<qdrant_container_ipv4>:6333"
+OPENAI_API_KEY=sk-111111111111111111111111111111111111111111111111
+OPENAI_API_BASE=<llm host ipv4>
