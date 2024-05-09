@@ -1,5 +1,6 @@
 import gradio as gr
-import utils
+from utils.llm import LLM
+from utils.qdrant import Qdrant
 
 # embedding_model_list = ['BAAI/bge-base-en', 'BAAI/bge-base-en-v1.5', 'BAAI/bge-large-en-v1.5', 'BAAI/bge-small-en', 'BAAI/bge-small-en-v1.5', 'BAAI/bge-small-zh-v1.5', 'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', 'nomic-ai/nomic-embed-text-v1', 'nomic-ai/nomic-embed-text-v1.5', 'thenlper/gte-large', 'mixedbread-ai/mxbai-embed-large-v1', 'intfloat/multilingual-e5-large', 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2', 'jinaai/jina-embeddings-v2-base-en', 'jinaai/jina-embeddings-v2-small-en']
 
@@ -14,7 +15,7 @@ with gr.Blocks() as demo:
             
             with gr.Row():
                 text_model_dropdown = gr.Dropdown(
-                    label="Language Model", choices=utils.Functional.get_model_list(), 
+                    label="Language Model", choices=LLM.get_model_list(), 
                     allow_custom_value=True, value="gemma-7b-it")
             
             with gr.Row():
@@ -28,12 +29,12 @@ with gr.Blocks() as demo:
             
         output_box = gr.Chatbot(label="Output:", height=800)
     
-    submit_btn.click(utils.Functional.send_query, inputs=[text_model_dropdown, msg_box, output_box], outputs=[msg_box, output_box])
-    load_btn.click(utils.Functional.load_model, inputs=[text_model_dropdown], outputs=[status])
-    unload_btn.click(utils.Functional.unload_model, outputs=[status])
-    upload.upload(utils.Functional.load_file, inputs=[upload], outputs=[status])
+    submit_btn.click(LLM.send_query, inputs=[text_model_dropdown, msg_box, output_box], outputs=[msg_box, output_box])
+    load_btn.click(LLM.load_model, inputs=[text_model_dropdown], outputs=[status])
+    unload_btn.click(LLM.unload_model, outputs=[status])
+    upload.upload(LLM.load_file, inputs=[upload], outputs=[status])
     clear_button.add([output_box, msg_box])
     
 if __name__ == "__main__":
-    utils.Functional.start_qdrant_db(base_url="ssh://raspi@192.168.1.72")
+    Qdrant.start_qdrant_db(base_url="ssh://raspi@192.168.1.72")
     demo.launch(server_port=7861, server_name="0.0.0.0")
