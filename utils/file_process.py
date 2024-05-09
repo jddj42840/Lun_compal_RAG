@@ -4,7 +4,7 @@ import PyPDF2
 import subprocess
 import gradio as gr
 import pandas as pd
-from qdrant import qdrant_client
+from utils.qdrant import qdrant_client
 from utils.logging_colors import logger
 
 class File_process:
