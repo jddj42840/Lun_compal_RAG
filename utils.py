@@ -7,6 +7,7 @@ import docker
 import gradio as gr
 import subprocess
 import PyPDF2
+import pandas as pd
 from textwrap import dedent
 from openai import OpenAI
 from logging_colors import logger
@@ -25,7 +26,7 @@ port = os.getenv("PORT", "5001")
 client = OpenAI(
     base_url=os.getenv("OPENAI_API_BASE", f"{protocal}://{url}:{port}/v1"), 
     api_key=os.getenv("OPENAI_API_KEY", "sk-111111111111111111111111111111111111111111111111"))
-qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://25.17.79.112:6333"))
+qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://192.168.1.72:6333"))
 qdrant_client.set_model("intfloat/multilingual-e5-large")
 
 
@@ -65,16 +66,12 @@ class Functional:
                 )
             except Exception as e:
                 logger.error(str(e))
-                gr.Error("Failed to start qdrant container.")
+                gr.Error("Failed to create qdrant container.")
                 return False
         else:
             logger.info("found exist qdrant container, starting container...")
-            try:
-                client.containers.get("qdrant").start()
-            except Exception as e:
-                logger.error(str(e))
-                gr.Error("Failed to start qdrant container.")
-                return False
+            client.containers.get("qdrant").start()
+            time.sleep(5)
         
         collection_list = []
         collections = qdrant_client.get_collections()
@@ -116,10 +113,8 @@ class Functional:
                 
         config_info = json.load(open("config.json", "r", encoding="utf-8"))
         
-        # upload
         yield "Uploading..."
-        
-        
+        # upload
         for file_path in file_paths:
             full_file_name =  file_path.name.split("/")[-1]
             file_name, file_extension = os.path.splitext(full_file_name)
@@ -127,17 +122,49 @@ class Functional:
                 gr.Info(f"File {full_file_name} already uploaded. Ignore it...")
                 continue
             
+            yield f"Processing {full_file_name}"
+            # 處理不同的副檔格式
             if file_extension == '.pdf':
                 pass
             elif file_extension == '.ppt' or file_extension == '.pptx':
                 gr.Info("Detect ppt or pptx extension. Please wait for converting...")
                 try:
-                    yield "Converting ppt to pdf..."
-                    subprocess.Popen(["libreoffice", "--headless", "--invisible", "--convert-to", "pdf", file_path, "--outdir", "ppt_to_pdf"]).wait()
-                    file_path = os.path.join("ppt_to_pdf", full_file_name.replace(file_extension, ".pdf"))
+                    subprocess.Popen(["libreoffice", "--headless", "--invisible", "--convert-to", "pdf", file_path, "--outdir", "pdf_output"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+                    file_path = os.path.join("pdf_output", full_file_name.replace(file_extension, ".pdf"))
                 except Exception as e:
                     logger.error(f"An error occurred: {str(e)}")
                     raise gr.Error(f"An error occurred: {str(e)}")
+            elif file_extension == ".xlsx":
+                """
+                轉換規則
+                1. 有文字的背景顏色盡量一致
+                2. 格式(靠左對齊之類的)or縮排盡量一致
+                """
+                gr.Warning(f"Detect {file_extension} extension. \nATTENTION, upload {file_extension} extension file may loss some information and response unexpected information.")
+                subprocess.Popen(["libreoffice", "--headless", "--invisible", "--convert-to", "pdf", file_path, "--outdir", "pdf_output"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+                file_path = os.path.join("pdf_output", full_file_name.replace(file_extension, ".pdf"))
+            elif file_extension == ".csv":
+                """
+                資料格式如下
+                Q,A,Reference
+                <問題>,<答案>,<參考資料>
+                ...
+                """
+                df = pd.read_csv(file_path)
+                document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}{file_extension}"\n**********\n\n"""
+                csv_data = []
+                for index, row in df.iterrows():
+                    qa_text = ""
+                    qa_text += f"Question: {row['Q']}\n"
+                    qa_text += f"Answer: {row['A']}\n"
+                    if "Reference" in row:
+                        qa_text += f"Reference: {row['Reference']}\n\n"
+                    csv_data.append(document_prefix + qa_text)
+                    
+                qdrant_client.add(
+                    collection_name="compal_rag",
+                    documents=csv_data)
+                continue
             else:
                 logger.error(f"File {full_file_name} is not support. Ignore it...")
                 gr.Warning(f"File {full_file_name} is not support. Ignore it...")
@@ -147,10 +174,11 @@ class Functional:
             config_info["uploaded_file"].append(full_file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
             
+            # 讀取pdf檔案
             with open(file_path, 'rb') as f:
                 reader = PyPDF2.PdfReader(f)
                 for index in range(len(reader.pages)):
-                    document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}"\n頁碼:{index+1}\n**********\n\n"""
+                    document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}{file_extension}"\n頁碼:{index+1}\n**********\n\n"""
                     qdrant_client.add(
                         collection_name="compal_rag",
                         documents=[document_prefix + reader.pages[index].extract_text()])
@@ -259,7 +287,7 @@ class chat_api:
             limit=kwargs.get("top_k", 8))
         
         content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
-        
+        print(content)
         prompt_template = f"""{self.system_prompt_prefix}
         
         {{context}} 

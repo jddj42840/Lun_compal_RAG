@@ -13,7 +13,9 @@ with gr.Blocks() as demo:
             upload = gr.Files(label="Upload file")
             
             with gr.Row():
-                text_model_dropdown = gr.Dropdown(label="Language Model", choices=utils.Functional.get_model_list(), allow_custom_value=True)
+                text_model_dropdown = gr.Dropdown(
+                    label="Language Model", choices=utils.Functional.get_model_list(), 
+                    allow_custom_value=True, value="gemma-7b-it")
             
             with gr.Row():
                 load_btn = gr.Button(value="Load model")
@@ -33,5 +35,5 @@ with gr.Blocks() as demo:
     clear_button.add([output_box, msg_box])
     
 if __name__ == "__main__":
-    utils.Functional.start_qdrant_db(base_url="unix:///var/run/docker.sock")
+    utils.Functional.start_qdrant_db(base_url="ssh://raspi@192.168.1.72")
     demo.launch(server_port=7861, server_name="0.0.0.0")

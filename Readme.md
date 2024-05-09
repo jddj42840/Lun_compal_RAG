@@ -23,4 +23,12 @@ if __name__ == "__main__":
     demo.launch(server_port=7861)
 ```
 
+---
+
+檔案轉換 目前僅支援 ppt, pptx, pdf, xlsx, csv 格式
+
+xlsx 可能因為排版等等原因導致轉換成 pdf 的過程中遺漏一些資訊
+
+---
+
 =v=
