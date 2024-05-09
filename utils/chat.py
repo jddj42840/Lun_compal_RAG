@@ -1,7 +1,7 @@
 
 from openai import OpenAI
 from textwrap import dedent
-from qdrant import qdrant_client
+from utils.qdrant import qdrant_client
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough

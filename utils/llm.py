@@ -5,6 +5,7 @@ import json
 import requests
 import gradio as gr
 from utils.logging_colors import logger
+from utils.chat import Chat_api
 from dotenv import load_dotenv
 
 load_dotenv(override=True, dotenv_path=".env")
@@ -38,7 +39,7 @@ class LLM:
             raise gr.Error("Please enter a question")
         
         output_box.append([text, ""])
-        chain = chat_api().setup_model(search_content=text)
+        chain = Chat_api().setup_model(search_content=text)
         start = time.time()
         for chunk in chain.stream("#zh-tw" + text):
             output_box[-1][1] += chunk
