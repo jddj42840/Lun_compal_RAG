@@ -38,7 +38,7 @@ class Chat_api:
             limit=kwargs.get("top_k", 8))
         
         content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
-        print(content)
+
         prompt_template = f"""{self.system_prompt_prefix}
         
         {{context}} 
