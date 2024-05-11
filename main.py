@@ -28,13 +28,14 @@ with gr.Blocks() as demo:
             clear_button = gr.ClearButton()
             status = gr.Markdown(value="")
             
-        output_box = gr.Chatbot(label="Output:", height=800)
+        detail_output_box = gr.Chatbot(label="Detail output:", height=800)
+        summary_output_box = gr.Chatbot(label="Summary output:", height=800)
     
-    submit_btn.click(LLM.send_query, inputs=[text_model_dropdown, msg_box, output_box], outputs=[msg_box, output_box])
+    submit_btn.click(LLM.send_query, inputs=[text_model_dropdown, msg_box, detail_output_box, summary_output_box], outputs=[msg_box, detail_output_box, summary_output_box])
     load_btn.click(LLM.load_model, inputs=[text_model_dropdown], outputs=[status])
     unload_btn.click(LLM.unload_model, outputs=[status])
     upload.upload(File_process.load_file, inputs=[upload], outputs=[status])
-    clear_button.add([output_box, msg_box])
+    clear_button.add([detail_output_box, summary_output_box, msg_box])
     
 if __name__ == "__main__":
     Qdrant.start_qdrant_db(base_url="ssh://raspi@192.168.1.72")

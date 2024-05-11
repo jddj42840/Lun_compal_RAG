@@ -29,7 +29,7 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             return ["None"]
 
-    def send_query(text_dropdown: str, text: str, output_box: gr.Chatbot):
+    def send_query(text_dropdown: str, text: str, detail_output_box: list, summary_output_box: list):
         
         if LLM.get_model() == 'None':
             gr.Warning("Please selet a language model")
@@ -38,14 +38,25 @@ class LLM:
         if text == '':
             raise gr.Error("Please enter a question")
         
-        output_box.append([text, ""])
+        detail_output_box.append([text, ""])
+        summary_output_box.append([text, ""])
+        
         chain = Chat_api().setup_model(search_content=text)
         start = time.time()
         for chunk in chain.stream("#zh-tw" + text):
-            output_box[-1][1] += chunk
-            yield "", output_box
+            detail_output_box[-1][1] += chunk
+            yield "", detail_output_box, summary_output_box
         end = time.time()
         logger.info(f"Time cost: {end-start}")
+        
+        chain = Chat_api(custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text)
+        start = time.time()
+        for chunk in chain.stream("#zh-tw" + text):
+            summary_output_box[-1][1] += chunk
+            yield "", detail_output_box, summary_output_box
+        end = time.time()
+        logger.info(f"Time cost: {end-start}")
+        
 
     def load_model(model: str):
         if model == None:
