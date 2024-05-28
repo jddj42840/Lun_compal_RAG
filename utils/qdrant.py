@@ -3,11 +3,22 @@ import time
 import docker
 import gradio as gr
 from utils.logging_colors import logger
+
 from qdrant_client import QdrantClient, models
+from qdrant_client.models import VectorParams, Distance
+from langchain_community.embeddings import HuggingFaceEmbeddings
+from sentence_transformers import SentenceTransformer
 
 qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://192.168.1.72:6333"))
 qdrant_client.set_model("intfloat/multilingual-e5-large", cache_dir="./.cache")
+# qdrant_client.set_model("thenlper/gte-large")
 
+embeddings = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-large",
+                                    model_kwargs={'device': 'cpu'}, 
+                                    encode_kwargs={'device': 'cpu'})
+
+# embeddings = SentenceTransformer('thenlper/gte-large-zh', device="cpu")
+# embeddings = SentenceTransformer('intfloat/multilingual-e5-large', device="cpu")
 
 class Qdrant:
     # use linux non-root docker desktop as default method
@@ -51,5 +62,6 @@ class Qdrant:
         if "compal_rag" not in collection_list:
             qdrant_client.recreate_collection(
                 collection_name="compal_rag", 
+                # vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE),
                 vectors_config=qdrant_client.get_fastembed_vector_params(),
                 optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
