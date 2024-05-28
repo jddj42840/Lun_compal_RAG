@@ -6,5 +6,4 @@ docker
 python-dotenv
 gradio
 fastembed
-paramiko # remote shh package
 pypdf2

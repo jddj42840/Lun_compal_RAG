@@ -5,6 +5,7 @@ import time
 import json
 import requests
 import gradio as gr
+import pandas as pd
 from utils.logging_colors import logger
 from utils.chat import Chat_api
 
@@ -25,15 +26,12 @@ class LLM:
             text_model_list = [f for f in text_model_list if f not in except_file]
             logger.info("Model list fetched successfully")
             return gr.update(choices=text_model_list, value=LLM.get_model())
-        except Exception as e:
-            logger.error(f"Failed to fetch model list: {str(e)}")
-            raise str(e)
-        # except requests.exceptions.ConnectionError:
-        #     logger.error("ConnectionError: Failed to connect to the server.")
-        #     return ["None"]
-        # except requests.exceptions.Timeout:
-        #     logger.error("Timeout: The request timed out.")
-        #     return ["None"]
+        except requests.exceptions.ConnectionError:
+            logger.error("ConnectionError: Failed to connect to the server.")
+            return ["None"]
+        except requests.exceptions.Timeout:
+            logger.error("Timeout: The request timed out.")
+            return ["None"]
         
     def get_model_list() -> list:
         try:
@@ -49,7 +47,7 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             return ["None"]
 
-    def send_query(text_dropdown: str, text: str, detail_output_box: list, summary_output_box: list):
+    def send_query(text_dropdown: str, text: str, detail_output_box: list, summary_output_box: list, **kwargs):
         if text == '':
             gr.Warning("Please enter a question")
             return False
@@ -57,6 +55,17 @@ class LLM:
         if LLM.get_model() == 'None':
             gr.Warning("Please selet a language model")
             return False
+        
+        detail_output_box.append([text, ""])
+        summary_output_box.append([text, ""])
+        
+        # get standard response in csv
+        csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
+        if (text in csv["Q"].values):
+            detail_output_box[-1][1] = csv[csv["Q"] == text]["A(detail)"].values[0]
+            summary_output_box[-1][1] = csv[csv["Q"] == text]["A(summary)"].values[0]
+            yield "", detail_output_box, summary_output_box, gr.update(visible=False)
+            return True
 
         if submit_queue.full():
             logger.warning("Queue is full. Please wait a minute to execute send query operation!")
@@ -100,15 +109,13 @@ class LLM:
             except requests.exceptions.RequestException as e:
                 logger.error("Bad Request")
                 raise gr.Error("Bad Request")
-            
+        
+        
         logger.info(f"{text_dropdown} model ready")
         logger.info("add the request into queue...")
 
-        detail_output_box.append([text, ""])
-        summary_output_box.append([text, ""])
-        
-        
-        chain = Chat_api().setup_model(search_content=text)
+        # make response
+        chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(search_content=text)
         submit_queue.put(chain)
         start = time.time()
         for chunk in chain.stream("#zh-tw " + text):
@@ -117,13 +124,13 @@ class LLM:
         end = time.time()
         logger.info(f"Time cost: {end-start}")
         
-        # chain = Chat_api(custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text)
-        # start = time.time()
-        # for chunk in chain.stream("#zh-tw " + text):
-        #     summary_output_box[-1][1] += chunk
-        #     yield "", detail_output_box, summary_output_box, gr.update(visible=False)
-        # end = time.time()
-        # logger.info(f"Time cost: {end-start}")
+        chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text)
+        start = time.time()
+        for chunk in chain.stream("#zh-tw " + text):
+            summary_output_box[-1][1] += chunk
+            yield "", detail_output_box, summary_output_box, gr.update(visible=False)
+        end = time.time()
+        logger.info(f"Time cost: {end-start}")
         
         yield "", detail_output_box, summary_output_box, gr.update(visible=True)
         logger.info("remove the request from queue...")
@@ -203,16 +210,10 @@ class LLM:
             yield "Failed unload model."
             gr.Warning("The request timed out.")
             return False
-        except Exception as e:
-            logger.error(f"request failed: {str(e)}")
-            yield "Failed unload model."
-            gr.Warning(f"request failed: {str(e)}")
-            return False
 
     def get_model() -> str | bool:
         try:
             response = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/info", timeout=(10, None)).text)
-            print(response)
             return response["model_name"]
         except requests.exceptions.ConnectionError:
             logger.error("ConnectionError: Failed to connect to the server.")
@@ -222,8 +223,3 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             gr.Warning("The request timed out.")
             return False
-        except Exception as e:
-            logger.error(f"request failed: {str(e)}")
-            gr.Warning(f"request failed: {str(e)}")
-            return False
-

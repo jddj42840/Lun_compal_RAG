@@ -5,8 +5,7 @@ import PyPDF2
 import subprocess
 import gradio as gr
 import pandas as pd
-from transformers import AutoTokenizer, AutoModel
-from utils.qdrant import qdrant_client, embeddings
+from utils.qdrant import qdrant_client
 from utils.llm import LLM
 from utils.logging_colors import logger
 
@@ -91,15 +90,9 @@ class File_process:
                     qdrant_client.add(
                         collection_name="compal_rag",
                         documents=[document_prefix + reader.pages[index].extract_text()])
-                    # qdrant_client.upload_collection(
-                    #     collection_name="compal_rag",
-                    #     vectors=[embeddings.encode(document_prefix + reader.pages[index].extract_text())],
-                    #     ids=[index + 1],
-                    #     payload=[{"document": document_prefix + reader.pages[index].extract_text()}]
-                    # )
                     
-            # config_info["uploaded_file"].append(full_file_name)
-            # json.dump(config_info, open("config.json", "w", encoding="utf-8"))
+            config_info["uploaded_file"].append(full_file_name)
+            json.dump(config_info, open("config.json", "w", encoding="utf-8"))
             
         gr.Info("File uploaded successfully")
         yield "File uploaded successfully"
@@ -107,6 +100,9 @@ class File_process:
     def save_answer(choice: gr.Button, text_dropdown: str, text: str, detail_output_box: gr.Chatbot, summary_output_box: gr.Chatbot):
         if choice == "Yes":
             csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
+            if detail_output_box[-1][0] in csv["Q"].values:
+                yield gr.update(visible=False), ""
+                return True 
             data = {
                 "Q": detail_output_box[-1][0], 
                 "A(detail)": detail_output_box[-1][1],
@@ -115,13 +111,8 @@ class File_process:
             csv.to_csv("./standard_response.csv", index=False)
             yield gr.update(visible=False), "Save answer successfully."
         else:
-            # generate new answer
-            yield gr.update(visible=False),  "Generate new answer."
-            detail_response = []
-            summary_response = []
-            for _, detail, summary, _ in LLM.send_query(text_dropdown, text, detail_output_box, summary_output_box):
-                detail_response = detail
-                summary_response = summary
-                yield gr.update(), "", detail_response, summary_response, gr.update()
-            
-            yield gr.update(visible=True), "", detail_response, summary_response, gr.update()
+            yield gr.update(visible=False), "", detail_output_box, summary_output_box, "Generate new answer."
+            for _, detail, summary, _ in LLM.send_query(
+                text_dropdown, detail_output_box[-1][0], 
+                detail_output_box, summary_output_box, temperature=0.7):
+                yield gr.update(), "", detail, summary, gr.update()

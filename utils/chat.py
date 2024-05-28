@@ -1,15 +1,11 @@
-
-from openai import OpenAI
 from textwrap import dedent
-from qdrant_client import models
-from utils.qdrant import qdrant_client, embeddings
+from utils.qdrant import qdrant_client
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
 from langchain.callbacks import StdOutCallbackHandler, StreamingStdOutCallbackHandler
 
-# client = OpenAI()
 
 class Chat_api:
     """
@@ -39,28 +35,12 @@ class Chat_api:
             collection_name="compal_rag",
             query_text=search_content,
             limit=kwargs.get("top_k", 8))
-        
-        # embeddings_name = "gte-large-zh"
-        # query = embeddings.encode(search_content)
-        
-        # result = qdrant_client.search(
-        #     collection_name="compal_rag",
-        #     query_vector=query.tolist(),
-        #     query_filter=None,
-        #     with_payload=True,
-        #     limit=kwargs.get("top_k", 8)
-        # )
+
         
         content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
 
         # debug use
         print(content)
-        
-        # content = ""
-        # for index in result:
-        #     score = index.score
-        #     print(score)
-        #     content += f"{index.metadata['document']}\n\n--------------------------\n\n"
             
         prompt_template = f"""{self.RAG_SUMMARY_SYS_PROMPT if self.custom_instruction != "" else self.RAG_DETAIL_SYS_PROMPT }
         
