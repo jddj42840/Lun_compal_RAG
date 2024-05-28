@@ -1,1 +1,5 @@
-{"uploaded_file": [], "model_config": {"2&7&8B": {"load_in_4bit": false, "load_in_8bit": true, "loader": "Transformers"}, "13B": {"load_in_4bit": true, "load_in_8bit": false, "loader": "Transformers"}, "gguf": {"n_ctx": 32768, "n_gpu_layers": 16, "alpha_value": 1.75, "streaming_llm": true, "loader": "llama.cpp"}}}
+{
+    "uploaded_file": [], "model_config": {"2&7&8B": {"load_in_4bit": true, "load_in_8bit": false, "loader": "Transformers"}, "13B": {"load_in_4bit": true, "load_in_8bit": false, "loader": "Transformers"}, "gguf": {"n_ctx": 32768, "n_gpu_layers": 16, "alpha_value": 1.75, "streaming_llm": true, "loader": "llama.cpp"}},
+    "encrypt_string": "཰Ԗᛰ፵ࠔज़ϦᖂܴਜҁϦљ҇୯ࡋљȐԾ҇୯ ԃ߯Ҿ཰ӝٳᔼ཰ൔ֋ਜǵᜢ߯Ҿ཰ӝٳ଄୍ൔ߄Ϸᜢ߯ൔ֋ਜયΕጓᇙᜢ߯Ҿ཰ӝٳ଄୍ൔ֋ϐϦљᆶ٩୯ሞ଄୍ൔᏤྗ߾ಃጓᇙྗި"
+
+}

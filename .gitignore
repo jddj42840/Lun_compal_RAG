@@ -1,8 +1,14 @@
-.env
-INKS.zip
-Pipfile
 *.csv
+*.txt
+*.pdf
+*__pycache__*
 qdrant_data/
 pdf_output/
 INKS/
+venv/
+INKS.zip
+Pipfile
+test.py
 .vscode
+.cache
+.env

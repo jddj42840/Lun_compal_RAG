@@ -14,6 +14,7 @@ clone 下來後請依需求以及實際情況修改 env 環境變數
   ```
 - windows
   請參考[這裡](https://docs.docker.com/reference/cli/dockerd/#bind-docker-to-another-hostport-or-a-unix-socket)
+  並且將 requests 套件版本指定為 2.31.0
 
   <br><br>
 
