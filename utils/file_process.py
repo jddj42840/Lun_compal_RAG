@@ -91,15 +91,9 @@ class File_process:
                     qdrant_client.add(
                         collection_name="compal_rag",
                         documents=[document_prefix + reader.pages[index].extract_text()])
-                    # qdrant_client.upload_collection(
-                    #     collection_name="compal_rag",
-                    #     vectors=[embeddings.encode(document_prefix + reader.pages[index].extract_text())],
-                    #     ids=[index + 1],
-                    #     payload=[{"document": document_prefix + reader.pages[index].extract_text()}]
-                    # )
                     
-            # config_info["uploaded_file"].append(full_file_name)
-            # json.dump(config_info, open("config.json", "w", encoding="utf-8"))
+            config_info["uploaded_file"].append(full_file_name)
+            json.dump(config_info, open("config.json", "w", encoding="utf-8"))
             
         gr.Info("File uploaded successfully")
         yield "File uploaded successfully"
