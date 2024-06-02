@@ -47,19 +47,18 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             return ["None"]
 
-    def send_query(text_dropdown: str, text: str, detail_output_box: list, summary_output_box: list, **kwargs):
-        if text == '':
-            gr.Warning("Please enter a question")
-            return False
-        
+    def send_query(text_dropdown: str, text: str, detail_output_box: list, summary_output_box: list, topk: str, **kwargs):
         if LLM.get_model() == 'None':
             gr.Warning("Please selet a language model")
+            return False
+        
+        if text == '':
+            gr.Warning("Please enter a question")
             return False
         
         detail_output_box.append([text, ""])
         summary_output_box.append([text, ""])
         
-        # get standard response in csv
         csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
         if (text in csv["Q"].values):
             detail_output_box[-1][1] = csv[csv["Q"] == text]["A(detail)"].values[0]
@@ -96,7 +95,6 @@ class LLM:
                     },
                     timeout=(10, None)
                 ).text)
-                logger.info(f"{response['status']}")
                 if response["status"] == 0:
                     logger.info(f"model loaded successfully")
                     gr.Info("Model loaded successfully")
@@ -115,7 +113,7 @@ class LLM:
         logger.info("add the request into queue...")
 
         # make response
-        chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(search_content=text)
+        chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(search_content=text, topk=topk)
         submit_queue.put(chain)
         start = time.time()
         for chunk in chain.stream("#zh-tw " + text):
@@ -124,7 +122,7 @@ class LLM:
         end = time.time()
         logger.info(f"Time cost: {end-start}")
         
-        chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text)
+        chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text, topk=topk)
         start = time.time()
         for chunk in chain.stream("#zh-tw " + text):
             summary_output_box[-1][1] += chunk

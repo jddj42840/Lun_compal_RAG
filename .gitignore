@@ -6,6 +6,7 @@ qdrant_data/
 pdf_output/
 INKS/
 venv/
+modelscope/
 INKS.zip
 Pipfile
 test.py

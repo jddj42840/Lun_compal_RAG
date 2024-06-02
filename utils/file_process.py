@@ -105,6 +105,8 @@ class File_process:
         yield "File uploaded successfully"
 
     def save_answer(choice: gr.Button, text_dropdown: str, text: str, detail_output_box: gr.Chatbot, summary_output_box: gr.Chatbot):
+        if not os.path.exists("./standard_response.csv"):
+            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
         if choice == "Yes":
             csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
             if detail_output_box[-1][0] in csv["Q"].values:

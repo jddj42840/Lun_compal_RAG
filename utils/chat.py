@@ -31,11 +31,13 @@ class Chat_api:
         self.custom_instruction = custom_instruction
         self.streaming = streaming
         
-    def setup_model(self, search_content: str = "", **kwargs) -> ChatOpenAI:
+    def setup_model(self, search_content: str = "", topk: str = "5", **kwargs) -> ChatOpenAI:
+        if topk == "": 
+            topk = "5"
         result = qdrant_client.query(
             collection_name="compal_rag",
             query_text=search_content,
-            limit=kwargs.get("top_k", 8))
+            limit=int(topk))
         
         # embeddings_name = "gte-large-zh"
         # query = embeddings.encode(search_content)
@@ -45,8 +47,7 @@ class Chat_api:
         #     query_vector=query.tolist(),
         #     query_filter=None,
         #     with_payload=True,
-        #     limit=kwargs.get("top_k", 8)
-        # )
+        #     limit=int(topk))
         
         content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
 
