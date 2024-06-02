@@ -30,10 +30,4 @@ if __name__ == "__main__":
 
 xlsx 可能因為排版等等原因導致轉換成 pdf 的過程中遺漏一些資訊
 
----
-
-# dev 分支之開發測試項目
-
-- [ ] 用 Huggingfaceembedding 套件測試 RAG 效果(不使用 qdrant.set_model 方法)(2024/5/28 新增)
-
 =v=

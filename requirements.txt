@@ -7,4 +7,3 @@ python-dotenv
 gradio
 fastembed
 pypdf2
-sentence-transformers
