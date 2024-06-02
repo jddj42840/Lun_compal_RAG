@@ -9,7 +9,6 @@ import pandas as pd
 from utils.logging_colors import logger
 from utils.chat import Chat_api
 
-
 protocal = os.getenv("PROTOCAL", "http")
 url = os.getenv("SERVER_URL", "10.20.1.96")
 port = os.getenv("PORT", "5001")
@@ -17,6 +16,7 @@ port = os.getenv("PORT", "5001")
 # 用來控制多人同時 Submit 要處理的請求佇列，多個請求傳入時最多只接受一個請求
 submit_queue = queue.Queue(maxsize=1)
 '''用來控制多人同時 Submit 要處理的請求佇列，多個請求傳入時最多只接受一個請求'''
+
 
 class LLM:
     def update_model_list() -> list:
