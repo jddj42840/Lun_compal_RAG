@@ -1,0 +1,12 @@
+# Python Virtual Environment
+.venv/
+
+# Qdrant Vector DB
+qdrant_data/
+
+# Environment Variables
+.env
+.envExample
+
+# README
+Readme.md
