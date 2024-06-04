@@ -9,7 +9,6 @@ venv/
 modelscope/
 INKS.zip
 Pipfile
-test.py
 .vscode
 .cache
 .env
