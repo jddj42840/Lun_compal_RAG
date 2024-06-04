@@ -12,3 +12,4 @@ Pipfile
 .vscode
 .cache
 .env
+.venv/
