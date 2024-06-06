@@ -3,23 +3,14 @@ import time
 import json
 import docker
 import gradio as gr
+import pandas as pd
 from utils.logging_colors import logger
 from qdrant_client import QdrantClient, models
-from qdrant_client.models import VectorParams, Distance
-from langchain_community.embeddings import HuggingFaceEmbeddings
-from sentence_transformers import SentenceTransformer
 
 qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://192.168.1.72:6333"))
 qdrant_embed_model = "intfloat/multilingual-e5-large"
 qdrant_client.set_model(qdrant_embed_model, cache_dir="./.cache")
-# qdrant_client.set_model("thenlper/gte-large")
 
-embeddings = HuggingFaceEmbeddings(model_name="intfloat/multilingual-e5-large",
-                                    model_kwargs={'device': 'cpu'}, 
-                                    encode_kwargs={'device': 'cpu'})
-
-# embeddings = SentenceTransformer('thenlper/gte-large-zh', device="cpu")
-# embeddings = SentenceTransformer('intfloat/multilingual-e5-large', device="cpu")
 
 class Qdrant:
     def start_qdrant_db() -> None :
@@ -61,9 +52,11 @@ class Qdrant:
         if "compal_rag" not in collection_list:
             qdrant_client.recreate_collection(
                 collection_name="compal_rag", 
-                # vectors_config=models.VectorParams(size=1024, distance=models.Distance.COSINE),
                 vectors_config=qdrant_client.get_fastembed_vector_params(),
                 optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
+            
+        if not os.path.exists("./standard_response.csv"):
+            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
 
     def load_embed_model(embed_model: str) -> None:
         if embed_model != qdrant_embed_model:

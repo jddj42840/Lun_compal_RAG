@@ -7,8 +7,13 @@ import requests
 import gradio as gr
 import pandas as pd
 from utils.logging_colors import logger
-from utils.chat import Chat_api
-
+from textwrap import dedent
+from utils.qdrant import qdrant_client
+from langchain_openai import ChatOpenAI
+from langchain_core.prompts import ChatPromptTemplate
+from langchain_core.runnables import RunnablePassthrough
+from langchain_core.output_parsers import StrOutputParser
+from langchain.callbacks import StdOutCallbackHandler, StreamingStdOutCallbackHandler
 
 protocal = os.getenv("PROTOCAL", "http")
 url = os.getenv("SERVER_URL", "10.20.1.96")
@@ -18,26 +23,14 @@ port = os.getenv("PORT", "5001")
 submit_queue = queue.Queue(maxsize=1)
 '''用來控制多人同時 Submit 要處理的請求佇列，多個請求傳入時最多只接受一個請求'''
 
+
 class LLM:
-    def update_model_list() -> list:
-        try:
-            text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list", timeout=(10, None)).text)["model_names"]
-            except_file = ["wget-log", "output.log", "Octopus-v2", "Phi-3-mini-4k-instruct", ]
-            text_model_list = [f for f in text_model_list if f not in except_file]
-            logger.info("Model list fetched successfully")
-            return gr.update(choices=text_model_list, value=LLM.get_model())
-        except requests.exceptions.ConnectionError:
-            logger.error("ConnectionError: Failed to connect to the server.")
-            return ["None"]
-        except requests.exceptions.Timeout:
-            logger.error("Timeout: The request timed out.")
-            return ["None"]
-        
     def get_model_list() -> list:
         try:
             text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list", timeout=(10, None)).text)["model_names"]
-            except_file = ["wget-log", "output.log", "Octopus-v2", "Phi-3-mini-4k-instruct", ]
-            text_model_list = [f for f in text_model_list if f not in except_file]
+            text_model_list
+            except_file = ["wget-log", "output.log", "Octopus-v2", "Phi-3-mini-4k-instruct", "bge-reranker-large"]
+            text_model_list = [f for f in text_model_list if f not in except_file and "gguf" not in f]
             logger.info("Model list fetched successfully")
             return text_model_list
         except requests.exceptions.ConnectionError:
@@ -59,6 +52,8 @@ class LLM:
         detail_output_box.append([text, ""])
         summary_output_box.append([text, ""])
         
+        if not os.path.exists("./standard_response.csv"):
+            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
         csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
         if (text in csv["Q"].values):
             detail_output_box[-1][1] = csv[csv["Q"] == text]["A(detail)"].values[0]
@@ -112,7 +107,6 @@ class LLM:
         logger.info(f"{text_dropdown} model ready")
         logger.info("add the request into queue...")
 
-        # make response
         chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(search_content=text, topk=topk)
         submit_queue.put(chain)
         start = time.time()
@@ -133,81 +127,6 @@ class LLM:
         yield "", detail_output_box, summary_output_box, gr.update(visible=True)
         logger.info("remove the request from queue...")
         submit_queue.get()
-        
-    def load_model(model: str):
-        if model == None:
-            yield "Please selet a language model"
-            gr.Warning("Please selet a language model")
-            return False
-        
-        if submit_queue.full():
-            logger.warning("Queue is full. Please wait a minute to execute load model operation.")
-            gr.Warning("Queue is full. Please wait a minute to execute load model operation.")
-            return False
-        else:
-            logger.info("Queue is empty.")
-            
-        model_data = json.load(open("config.json", "r", encoding="utf-8"))["model_config"]
-        
-        if re.search(r"gguf", model):
-            args = model_data["gguf"]
-            gr.Info("gguf格式的模型可能因為評估題詞而載入過久,請謹慎使用.")
-        elif re.search(r"2b|2B|6b|6B|7b|7B|8b|8B|128k", model):
-            args = model_data["2&7&8B"]
-        elif re.search(r"13b|13B", model):
-            args = model_data["13B"]
-        else:
-            logger.error(f"Model config not found")
-            gr.Warning("Model config not found")
-            return False
-        
-        yield "Loading model..."
-        try:    
-            response = json.loads(requests.post(
-                f"{protocal}://{url}:{port}/v1/internal/model/load",
-                json={
-                    "model_name": model,
-                    "args": args,
-                    "settings": {"instruction_template": "Alpaca"}
-                },
-                timeout=(10, None)
-            ).text)
-            if response["status"] == 0:
-                logger.info(f"model loaded successfully")
-                yield "Model loaded successfully"
-            else: 
-                logger.error(f"failed to load model...")
-                yield "Failed to load model"
-                gr.Warning("Failed to load model")
-                return False
-        except requests.exceptions.Timeout:
-            logger.error("The request timed out.")
-            yield "Failed to load model."
-            gr.Warning("The request timed out.")
-            return False
-        except requests.exceptions.RequestException as e:
-            logger.error("Bad Request")
-            yield "Failed to load model."
-            gr.Warning("Bad Request")
-            return False
-
-    def unload_model(model: str):
-        logger.info(f"will unload {model}")
-        try:
-            requests.post(f"{protocal}://{url}:{port}/v1/internal/model/unload", timeout=(10, None))
-            logger.info(f"model unloaded successfully")
-            gr.Info("Model unloaded successfully")
-            yield "Model unloaded successfully"
-        except requests.exceptions.ConnectionError:
-            logger.error("ConnectionError: Failed to connect to the server.")
-            yield "Failed unload model."
-            gr.Warning("Failed to connect to the server.")
-            return False
-        except requests.exceptions.Timeout:
-            logger.error("Timeout: The request timed out.")
-            yield "Failed unload model."
-            gr.Warning("The request timed out.")
-            return False
 
     def get_model() -> str | bool:
         try:
@@ -221,3 +140,54 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             gr.Warning("The request timed out.")
             return False
+
+
+class Chat_api:
+    """
+    is_rag: 是否使用RAG
+    temperature: 模型感情
+    role: 對話角色
+    """
+    
+    RAG_DETAIL_SYS_PROMPT = dedent("""
+        你是一個客服聊天機器人，以下提供的資料為連續或近似的資料，你必須參考以下不同段落中的資訊來回答問題，請注意段落中有可能會有多餘的換行，若有遇到則將上下文連貫起來。
+        若問題的答案無法從參考的段落中取得，那你可以參考參考資料來回答答案但是在回覆的開頭必須表明"雖然參考資料中沒有明確的答案，但根據資料....."。
+        在最後的回答中，可以衍生出新的問題，但是不得創造新的資訊。
+        輸出必須使用繁體中文，並且在回答的最後加入參考檔案名稱及頁碼。
+        """)
+    
+    RAG_SUMMARY_SYS_PROMPT = dedent("""
+        你是一個客服聊天機器人，請將使用者提供的敘述做summary, 回答越精簡越好, 若提供的內容中有參考資料, 請在回答中加入參考資料檔案的名稱與頁碼，並且用繁體中文回覆。""")
+    
+    def __init__(self, temperature: float = 0, role: str = "assistant", custom_instruction: str = ""):
+        self.temperature = temperature
+        self.role = role
+        self.custom_instruction = custom_instruction
+        
+    def setup_model(self, search_content: str = "", topk: str = "5", **kwargs) -> ChatOpenAI:
+        if topk == "": 
+            topk = "5"
+        result = qdrant_client.query(
+            collection_name="compal_rag",
+            query_text=search_content,
+            limit=int(topk))
+        
+        content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
+
+        # debug use
+        # print(content)
+            
+        prompt_template = f"""{self.RAG_SUMMARY_SYS_PROMPT if self.custom_instruction != "" else self.RAG_DETAIL_SYS_PROMPT }
+        
+        {{context}} 
+
+        Question: {{question}}"""
+        
+        self.chain = (
+            {"context": lambda x: content if self.custom_instruction == "" else self.custom_instruction , "question": RunnablePassthrough()}
+            | ChatPromptTemplate.from_template(prompt_template)
+            | ChatOpenAI(streaming=True, max_tokens=0, temperature=self.temperature,
+                        callbacks=[StreamingStdOutCallbackHandler()])
+            | StrOutputParser()
+        )
+        return self.chain

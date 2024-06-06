@@ -1,6 +1,7 @@
 *.csv
 *.txt
 *.pdf
+test.py
 *__pycache__*
 qdrant_data/
 pdf_output/
