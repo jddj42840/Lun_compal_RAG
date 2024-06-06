@@ -3,6 +3,7 @@ import time
 import json
 import docker
 import gradio as gr
+import pandas as pd
 from utils.logging_colors import logger
 from qdrant_client import QdrantClient, models
 
@@ -53,6 +54,9 @@ class Qdrant:
                 collection_name="compal_rag", 
                 vectors_config=qdrant_client.get_fastembed_vector_params(),
                 optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
+            
+        if not os.path.exists("./standard_response.csv"):
+            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
 
     def load_embed_model(embed_model: str) -> None:
         if embed_model != qdrant_embed_model:

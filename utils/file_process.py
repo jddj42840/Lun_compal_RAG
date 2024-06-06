@@ -5,8 +5,7 @@ import PyPDF2
 import subprocess
 import gradio as gr
 import pandas as pd
-from transformers import AutoTokenizer, AutoModel
-from utils.qdrant import qdrant_client, embeddings
+from utils.qdrant import qdrant_client
 from utils.llm import LLM
 from utils.logging_colors import logger
 
@@ -90,7 +89,7 @@ class File_process:
                         continue
                     qdrant_client.add(
                         collection_name="compal_rag",
-                        documents=[document_prefix + reader.pages[index].extract_text()])
+                        documents=[document_prefix + text])
                     
             config_info["uploaded_file"].append(full_file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
@@ -99,8 +98,6 @@ class File_process:
         yield "File uploaded successfully"
 
     def save_answer(choice: gr.Button, text_dropdown: str, text: str, detail_output_box: gr.Chatbot, summary_output_box: gr.Chatbot):
-        if not os.path.exists("./standard_response.csv"):
-            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
         if choice == "Yes":
             csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
             if detail_output_box[-1][0] in csv["Q"].values:
@@ -117,5 +114,5 @@ class File_process:
             yield gr.update(visible=False), "", detail_output_box, summary_output_box, "Generate new answer."
             for _, detail, summary, _ in LLM.send_query(
                 text_dropdown, detail_output_box[-1][0], 
-                detail_output_box, summary_output_box, temperature=0.7):
+                detail_output_box, summary_output_box, topk=5, temperature=0.7):
                 yield gr.update(), "", detail, summary, gr.update()
