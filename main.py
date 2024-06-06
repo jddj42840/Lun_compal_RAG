@@ -34,10 +34,13 @@ with gr.Blocks() as demo:
             clear_button = gr.ClearButton()
         
             with gr.Column(visible=False) as advanced_block:
-                embed_model_dropdown = gr.Dropdown(label="Embedding Model", choices=embedding_model_list, interactive=True) 
+                embed_model_dropdown = gr.Dropdown(
+                    label="Embedding Model", choices=embedding_model_list, 
+                    interactive=True, info="詞嵌入模型，主要影響相似度搜尋準確性。注意：若選取不同的詞嵌入模型，會重新建立資料庫，以前上傳過的文件須再重新上傳") 
                 text_model_dropdown = gr.Dropdown(
-                    label="Language Model", choices=LLM.get_model_list(), value=lambda: LLM.get_model(), interactive=True)
-                topk = gr.Textbox(label="Top-K", value="5")
+                    label="Language Model", choices=LLM.get_model_list(), value=lambda: LLM.get_model(), 
+                    interactive=True, info="語言模型，負責將相似度搜尋結果資訊做彙整並且輸出成詳細+摘要段落")
+                topk = gr.Textbox(label="Top-K", value="5", info="搜尋指定筆數給語言模型做資料彙整")
             status = gr.Markdown(value="")
             
         detail_output_box = gr.Chatbot(label="Detail output:", height=800)
@@ -46,8 +49,8 @@ with gr.Blocks() as demo:
     submit_btn.click(LLM.send_query, inputs=[text_model_dropdown, msg_box, detail_output_box, summary_output_box, topk], outputs=[msg_box, detail_output_box, summary_output_box, resp_row])
     upload.upload(File_process.load_file, inputs=[upload], outputs=[status])
     clear_button.add([detail_output_box, summary_output_box, msg_box])
-    yes_btn.click(File_process.save_answer, inputs=[yes_btn, text_model_dropdown,  msg_box, detail_output_box, summary_output_box], outputs=[resp_row, status])
-    no_btn.click(File_process.save_answer, inputs=[no_btn, text_model_dropdown,  msg_box, detail_output_box, summary_output_box], outputs=[resp_row, msg_box, detail_output_box, summary_output_box, status])
+    yes_btn.click(File_process.save_answer, inputs=[yes_btn, text_model_dropdown, msg_box, detail_output_box, summary_output_box], outputs=[resp_row, status])
+    no_btn.click(File_process.save_answer, inputs=[no_btn, text_model_dropdown, msg_box, detail_output_box, summary_output_box], outputs=[resp_row, msg_box, detail_output_box, summary_output_box, status])
     embed_model_dropdown.change(Qdrant.load_embed_model, inputs=[embed_model_dropdown], outputs=[status])
     advanced_checkbox.change(advanced_checkbox_change, inputs=[advanced_checkbox], outputs=[advanced_block])
 
