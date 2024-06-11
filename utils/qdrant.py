@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import docker
 import gradio as gr
 import pandas as pd
@@ -8,9 +7,11 @@ from utils.logging_colors import logger
 from qdrant_client import QdrantClient, models
 
 qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://192.168.1.72:6333"))
-qdrant_embed_model = "intfloat/multilingual-e5-large"
-qdrant_client.set_model(qdrant_embed_model, cache_dir="./.cache")
 
+# embedding_model_list = ['BAAI/bge-base-en', 'BAAI/bge-base-en-v1.5', 'BAAI/bge-large-en-v1.5', 'BAAI/bge-small-en', 'BAAI/bge-small-en-v1.5', 'BAAI/bge-small-zh-v1.5', 'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', 'nomic-ai/nomic-embed-text-v1', 'nomic-ai/nomic-embed-text-v1.5', 'thenlper/gte-large', 'mixedbread-ai/mxbai-embed-large-v1', 'intfloat/multilingual-e5-large', 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2', 'jinaai/jina-embeddings-v2-base-en', 'jinaai/jina-embeddings-v2-small-en']
+
+"""支援中文的"""
+embedding_model_list = ['BAAI/bge-small-zh-v1.5', 'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', 'intfloat/multilingual-e5-large']
 
 class Qdrant:
     def start_qdrant_db() -> None :
@@ -46,31 +47,14 @@ class Qdrant:
         for collection in collections:
             for c in list(collection[1]):
                 collection_list.append(c.name)
-
-        print(qdrant_client.get_fastembed_vector_params())
-        params = {}
-        if "compal_rag" not in collection_list:
-            qdrant_client.recreate_collection(
-                collection_name="compal_rag", 
-                vectors_config=qdrant_client.get_fastembed_vector_params(),
-                optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
+        
+        for collection_name in embedding_model_list:
+            if collection_name.replace("/", "_") not in collection_list:
+                qdrant_client.set_model(collection_name, cache_dir="./.cache")
+                qdrant_client.create_collection(
+                    collection_name=collection_name.replace("/", "_"),
+                    vectors_config=qdrant_client.get_fastembed_vector_params(),
+                    optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
             
         if not os.path.exists("./standard_response.csv"):
             pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
-
-    def load_embed_model(embed_model: str) -> None:
-        if embed_model != qdrant_embed_model:
-            gr.Info(f"using {embed_model}. recreating database...")
-            qdrant_client.set_model(embed_model, cache_dir="./.cache")
-            qdrant_client.recreate_collection(
-                collection_name="compal_rag",
-                vectors_config=qdrant_client.get_fastembed_vector_params(),
-                optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
-            
-            config_info = json.load(open("config.json", "r", encoding="utf-8"))
-            config_info["uploaded_file"] = []
-            json.dump(config_info, open("config.json", "w", encoding="utf-8"))
-            
-            gr.Info("Loading complete. Please reupload the document.")
-        
-        qdrant_client.set_model(embed_model, cache_dir="./.cache")

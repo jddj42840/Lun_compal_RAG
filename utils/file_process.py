@@ -5,7 +5,7 @@ import PyPDF2
 import subprocess
 import gradio as gr
 import pandas as pd
-from utils.qdrant import qdrant_client
+from utils.qdrant import qdrant_client, embedding_model_list
 from utils.llm import LLM
 from utils.logging_colors import logger
 
@@ -67,9 +67,11 @@ class File_process:
                         qa_text += f"Reference: {row['Reference']}\n\n"
                     csv_data.append(document_prefix + qa_text)
                     
-                qdrant_client.add(
-                    collection_name="compal_rag",
-                    documents=csv_data)
+                for index in range(len(embedding_model_list)):
+                    qdrant_client.set_model(embedding_model_list[index], cache_dir="./.cache")
+                    qdrant_client.add(
+                        collection_name=embedding_model_list[index].replace("/", "_"),
+                        documents=csv_data)
                 continue
             else:
                 logger.error(f"File {full_file_name} is not support. Ignore it...")
@@ -87,9 +89,12 @@ class File_process:
                     if re.search(encrypt_string, text):
                         gr.Warning(f"Detect encrypt string in page {index+1}. Ignore it...")
                         continue
-                    qdrant_client.add(
-                        collection_name="compal_rag",
-                        documents=[document_prefix + text])
+                    
+                    for index in range(len(embedding_model_list)):
+                        qdrant_client.set_model(embedding_model_list[index], cache_dir="./.cache")
+                        qdrant_client.add(
+                            collection_name=embedding_model_list[index].replace("/", "_"),
+                            documents=[document_prefix + text])
                     
             config_info["uploaded_file"].append(full_file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
@@ -97,8 +102,10 @@ class File_process:
         gr.Info("File uploaded successfully")
         yield "File uploaded successfully"
 
-    def save_answer(choice: gr.Button, text_dropdown: str, text: str, detail_output_box: gr.Chatbot, summary_output_box: gr.Chatbot):
+    def save_answer(choice: str, text_dropdown: str, detail_output_box: list, summary_output_box: list):
         if choice == "Yes":
+            if len(detail_output_box) == 0:
+                return False
             csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
             if detail_output_box[-1][0] in csv["Q"].values:
                 yield gr.update(visible=False), ""
@@ -111,6 +118,8 @@ class File_process:
             csv.to_csv("./standard_response.csv", index=False)
             yield gr.update(visible=False), "Save answer successfully."
         else:
+            if len(detail_output_box) == 0:
+                return False
             yield gr.update(visible=False), "", detail_output_box, summary_output_box, "Generate new answer."
             for _, detail, summary, _ in LLM.send_query(
                 text_dropdown, detail_output_box[-1][0], 

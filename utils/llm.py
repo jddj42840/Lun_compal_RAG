@@ -8,12 +8,12 @@ import gradio as gr
 import pandas as pd
 from utils.logging_colors import logger
 from textwrap import dedent
-from utils.qdrant import qdrant_client
+from utils.qdrant import qdrant_client, embedding_model_list
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.output_parsers import StrOutputParser
-from langchain.callbacks import StdOutCallbackHandler, StreamingStdOutCallbackHandler
+from langchain.callbacks import StreamingStdOutCallbackHandler
 
 protocal = os.getenv("PROTOCAL", "http")
 url = os.getenv("SERVER_URL", "10.20.1.96")
@@ -40,9 +40,17 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             return ["None"]
 
-    def send_query(text_dropdown: str, text: str, detail_output_box: list, summary_output_box: list, topk: str, **kwargs):
+    def send_query(text_dropdown: str, text: str, detail_output_box: list, 
+                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float, **kwargs):
         if LLM.get_model() == 'None':
             gr.Warning("Please selet a language model")
+            return False
+        
+        if embed_model == None:
+            gr.Warning("Please select an embedding model")
+            return False
+        elif embed_model not in embedding_model_list:
+            gr.Warning("Embedding model not found")
             return False
         
         if text == '':
@@ -52,8 +60,6 @@ class LLM:
         detail_output_box.append([text, ""])
         summary_output_box.append([text, ""])
         
-        if not os.path.exists("./standard_response.csv"):
-            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
         csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
         if (text in csv["Q"].values):
             detail_output_box[-1][1] = csv[csv["Q"] == text]["A(detail)"].values[0]
@@ -107,7 +113,8 @@ class LLM:
         logger.info(f"{text_dropdown} model ready")
         logger.info("add the request into queue...")
 
-        chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(search_content=text, topk=topk)
+        chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(
+            search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold))
         submit_queue.put(chain)
         start = time.time()
         for chunk in chain.stream("#zh-tw " + text):
@@ -116,7 +123,7 @@ class LLM:
         end = time.time()
         logger.info(f"Time cost: {end-start}")
         
-        chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text, topk=topk)
+        chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold))
         start = time.time()
         for chunk in chain.stream("#zh-tw " + text):
             summary_output_box[-1][1] += chunk
@@ -164,19 +171,43 @@ class Chat_api:
         self.role = role
         self.custom_instruction = custom_instruction
         
-    def setup_model(self, search_content: str = "", topk: str = "5", **kwargs) -> ChatOpenAI:
+    def setup_model(self, score_threshold: int, embed_model: str, 
+                    search_content: str = "", topk: str = "5", **kwargs) -> ChatOpenAI:
         if topk == "": 
             topk = "5"
+            
+        if score_threshold == 0:
+            score_threshold = None
+        
+        qdrant_client.set_model(embed_model, cache_dir="./.cache")
         result = qdrant_client.query(
-            collection_name="compal_rag",
+            collection_name=embed_model.replace("/", "_"),
             query_text=search_content,
-            limit=int(topk))
+            limit=int(topk),
+            # score_threshold=score_threshold)
+        )
         
         content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
 
         # debug use
         # print(content)
-            
+        result_score_list = []
+        index = 1
+        for r in result:
+            result_score_list.append(r.score)
+            print(dedent("""
+-----------------------------------
+Index: {}
+Top-K: {}
+Question: {}
+Result: {}
+Score: {}
+-----------------------------------
+""".format(index, topk, search_content, r.document, r.score)
+            ))
+            index+=1
+        print("Scores: {}".format(result_score_list))
+
         prompt_template = f"""{self.RAG_SUMMARY_SYS_PROMPT if self.custom_instruction != "" else self.RAG_DETAIL_SYS_PROMPT }
         
         {{context}} 
@@ -191,3 +222,4 @@ class Chat_api:
             | StrOutputParser()
         )
         return self.chain
+    
