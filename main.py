@@ -35,12 +35,14 @@ with gr.Blocks() as demo:
                 topk = gr.Textbox(label="Top-K", value="5", info="搜尋指定筆數給語言模型做資料彙整")
                 score_threshold = gr.Textbox(label="Score Threshold", value="0", visible=True, 
                                              info="相似度門檻閥值，超過閥值的資料才會被列入搜尋結果。multilingual-e5-large建議閥值為0.851, bge-small-zh-v1.5建議閥值為0.51, all-MiniLM-L6-v2建議閥值為0.75, paraphrase-multilingual-MiniLM-L12-v2建議閥值為0.51")
+                temperature = gr.Textbox(label="Temperature", value="0", visible=True)
+                prompt = gr.Textbox(label="prompt", max_lines=100)
             status = gr.Markdown(value="")
             
         detail_output_box = gr.Chatbot(label="Detail output:", height=800)
         summary_output_box = gr.Chatbot(label="Summary output:", height=800)
     
-    submit_btn.click(LLM.send_query, inputs=[text_model_dropdown, msg_box, detail_output_box, summary_output_box, embed_model_dropdown, topk, score_threshold], outputs=[msg_box, detail_output_box, summary_output_box, resp_row])
+    submit_btn.click(LLM.send_query, inputs=[text_model_dropdown, msg_box, detail_output_box, summary_output_box, embed_model_dropdown, topk, score_threshold, temperature, prompt], outputs=[msg_box, detail_output_box, summary_output_box, resp_row])
     upload.upload(File_process.load_file, inputs=[upload], outputs=[status])
     clear_button.add([detail_output_box, summary_output_box, msg_box])
     yes_btn.click(File_process.save_answer, inputs=[yes_btn, text_model_dropdown, detail_output_box, summary_output_box], outputs=[resp_row, status])

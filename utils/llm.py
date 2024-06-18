@@ -41,9 +41,9 @@ class LLM:
             return ["None"]
 
     def send_query(text_dropdown: str, text: str, detail_output_box: list, 
-                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float, **kwargs):
-        if LLM.get_model() == 'None':
-            gr.Warning("Please selet a language model")
+                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float, temperature: str = "0", prompt: str = "", **kwargs):
+        if text_dropdown == '':
+            gr.Warning("Please select a language model")
             return False
         
         if embed_model == None:
@@ -113,8 +113,8 @@ class LLM:
         logger.info(f"{text_dropdown} model ready")
         logger.info("add the request into queue...")
 
-        chain = Chat_api(temperature=kwargs.get("temperature", 0)).setup_model(
-            search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold))
+        chain = Chat_api(temperature=float(temperature)).setup_model(
+            search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold), custom_prompt=prompt)
         submit_queue.put(chain)
         start = time.time()
         for chunk in chain.stream("#zh-tw " + text):
@@ -157,10 +157,15 @@ class Chat_api:
     """
     
     RAG_DETAIL_SYS_PROMPT = dedent("""
-        你是一個客服聊天機器人，以下提供的資料為連續或近似的資料，你必須參考以下不同段落中的資訊來回答問題，請注意段落中有可能會有多餘的換行，若有遇到則將上下文連貫起來。
-        若問題的答案無法從參考的段落中取得，那你可以參考參考資料來回答答案但是在回覆的開頭必須表明"雖然參考資料中沒有明確的答案，但根據資料....."。
-        在最後的回答中，可以衍生出新的問題，但是不得創造新的資訊。
-        輸出必須使用繁體中文，並且在回答的最後加入參考檔案名稱及頁碼。
+你是一個客服聊天機器人，你必須參考以下不同段落中的資訊來回答問題，請注意段落中有可能會有多餘的換行，若有遇到則將上下文連貫起來。
+
+若參考資料為空白則回覆"沒有相關資料"。
+
+若使用者詢問有關"中餐"，此時請勿將"中山"的資料整合在一起，因為兩件事是指向不同的事物
+
+若沒有辦法從以下參考資料中取得資訊，則回答"沒有相關資料"。
+
+輸出必須使用繁體中文，並且在回答的最後加入參考檔案名稱及頁碼。
         """)
     
     RAG_SUMMARY_SYS_PROMPT = dedent("""
@@ -172,7 +177,7 @@ class Chat_api:
         self.custom_instruction = custom_instruction
         
     def setup_model(self, score_threshold: int, embed_model: str, 
-                    search_content: str = "", topk: str = "5", **kwargs) -> ChatOpenAI:
+                    search_content: str = "", topk: str = "5", custom_prompt: str = "", **kwargs) -> ChatOpenAI:
         if topk == "": 
             topk = "5"
             
@@ -184,14 +189,13 @@ class Chat_api:
             collection_name=embed_model.replace("/", "_"),
             query_text=search_content,
             limit=int(topk),
-            # score_threshold=score_threshold)
-        )
+            score_threshold=score_threshold)
         
         content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
 
         # debug use
         # print(content)
-        result_score_list = []
+        result_score_list = []  
         index = 1
         for r in result:
             result_score_list.append(r.score)
@@ -207,11 +211,21 @@ Score: {}
             ))
             index+=1
         print("Scores: {}".format(result_score_list))
-
-        prompt_template = f"""{self.RAG_SUMMARY_SYS_PROMPT if self.custom_instruction != "" else self.RAG_DETAIL_SYS_PROMPT }
         
+        if custom_prompt != "":
+            PROMPT = custom_prompt
+        else:
+            if self.custom_instruction != "":
+                PROMPT = self.RAG_SUMMARY_SYS_PROMPT
+            else:
+                PROMPT = self.RAG_DETAIL_SYS_PROMPT
+
+        prompt_template = f"""{PROMPT}
+        
+        # 參考資料
         {{context}} 
 
+        # 使用者問題
         Question: {{question}}"""
         
         self.chain = (

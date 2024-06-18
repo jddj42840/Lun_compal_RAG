@@ -54,7 +54,9 @@ class Qdrant:
                 qdrant_client.create_collection(
                     collection_name=collection_name.replace("/", "_"),
                     vectors_config=qdrant_client.get_fastembed_vector_params(),
-                    optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000))
+                    optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000),
+                    hnsw_config=models.HnswConfigDiff(on_disk=True, m=48, ef_construct=100)
+                )
             
         if not os.path.exists("./standard_response.csv"):
             pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
