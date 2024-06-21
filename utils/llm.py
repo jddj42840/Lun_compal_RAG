@@ -6,8 +6,8 @@ import json
 import requests
 import gradio as gr
 import pandas as pd
-from utils.logging_colors import logger
 from textwrap import dedent
+from utils.logging_colors import logger
 from utils.qdrant import qdrant_client, embedding_model_list
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
@@ -43,18 +43,18 @@ class LLM:
     def send_query(text_dropdown: str, text: str, detail_output_box: list, 
                    summary_output_box: list, embed_model: str, topk: str, score_threshold: float, temperature: str = "0", prompt: str = "", **kwargs):
         if text_dropdown == '':
-            gr.Warning("Please select a language model")
+            gr.Warning("請選擇一語言模型")
             return False
         
         if embed_model == None:
-            gr.Warning("Please select an embedding model")
+            gr.Warning("請選擇一詞嵌入模型")
             return False
         elif embed_model not in embedding_model_list:
-            gr.Warning("Embedding model not found")
+            gr.Warning("無相關詞嵌入模型")
             return False
         
         if text == '':
-            gr.Warning("Please enter a question")
+            gr.Warning("請輸入問題")
             return False
         
         detail_output_box.append([text, ""])
@@ -68,8 +68,7 @@ class LLM:
             return True
 
         if submit_queue.full():
-            logger.warning("Queue is full. Please wait a minute to execute send query operation!")
-            gr.Warning("Queue is full. Please wait a minute to execute send query operation!")
+            gr.Warning("聊天佇列以滿, 請稍後再發送請求。")
             return False
         else:
             model_data = json.load(open("config.json", "r", encoding="utf-8"))["model_config"]
@@ -81,8 +80,8 @@ class LLM:
             elif re.search(r"13b|13B", text_dropdown):
                 args = model_data["13B"]
             else:
-                logger.error(f"Model config not found")
-                raise gr.Error("Model config not found")
+                logger.error("未找到相關設定檔")
+                raise gr.Error("未找到相關設定檔")
             logger.info(f"args get")
             
             logger.info("Loading model...")
@@ -97,21 +96,21 @@ class LLM:
                     timeout=(10, None)
                 ).text)
                 if response["status"] == 0:
-                    logger.info(f"model loaded successfully")
-                    gr.Info("Model loaded successfully")
+                    logger.info("Model loaded successfully")
+                    gr.Info("語言模型讀取成功")
                 else: 
-                    logger.error(f"failed to load model...")
-                    raise gr.Error("Failed to load model")
+                    logger.error("failed to load model")
+                    raise gr.Error("讀取模型失敗...")
             except requests.exceptions.Timeout:
-                logger.error("The request timed out.")
-                raise gr.Error("The request timed out.")
+                logger.error("Timeout request...")
+                raise gr.Error("連線逾時...")
             except requests.exceptions.RequestException as e:
-                logger.error("Bad Request")
-                raise gr.Error("Bad Request")
+                logger.error("Bad request...")
+                raise gr.Error("錯誤...")
         
         
         logger.info(f"{text_dropdown} model ready")
-        logger.info("add the request into queue...")
+        logger.info("Add the request into queue...")
 
         chain = Chat_api(temperature=float(temperature)).setup_model(
             search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold), custom_prompt=prompt)
@@ -121,7 +120,7 @@ class LLM:
             detail_output_box[-1][1] += chunk
             yield "", detail_output_box, summary_output_box, gr.update(visible=False)
         end = time.time()
-        logger.info(f"Time cost: {end-start}")
+        logger.info(f"Detail output time cost: {end-start}")
         
         chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold))
         start = time.time()
@@ -129,7 +128,7 @@ class LLM:
             summary_output_box[-1][1] += chunk
             yield "", detail_output_box, summary_output_box, gr.update(visible=False)
         end = time.time()
-        logger.info(f"Time cost: {end-start}")
+        logger.info(f"summary output time cost: {end-start}")
         
         yield "", detail_output_box, summary_output_box, gr.update(visible=True)
         logger.info("remove the request from queue...")
@@ -141,11 +140,11 @@ class LLM:
             return response["model_name"]
         except requests.exceptions.ConnectionError:
             logger.error("ConnectionError: Failed to connect to the server.")
-            gr.Warning("Failed to connect to the server.")
+            gr.Warning("無法連接至伺服器.")
             return False
         except requests.exceptions.Timeout:
             logger.error("Timeout: The request timed out.")
-            gr.Warning("The request timed out.")
+            gr.Warning("連線逾時.")
             return False
 
 
@@ -171,10 +170,10 @@ class Chat_api:
     RAG_SUMMARY_SYS_PROMPT = dedent("""
         你是一個客服聊天機器人，請將使用者提供的敘述做summary, 回答越精簡越好, 若提供的內容中有參考資料, 請在回答中加入參考資料檔案的名稱與頁碼，並且用繁體中文回覆。""")
     
-    def __init__(self, temperature: float = 0, role: str = "assistant", custom_instruction: str = ""):
+    def __init__(self, temperature: float = 0, role: str = "assistant", custom_content: str = ""):
         self.temperature = temperature
         self.role = role
-        self.custom_instruction = custom_instruction
+        self.custom_content = custom_content
         
     def setup_model(self, score_threshold: int, embed_model: str, 
                     search_content: str = "", topk: str = "5", custom_prompt: str = "", **kwargs) -> ChatOpenAI:
@@ -215,7 +214,7 @@ Score: {}
         if custom_prompt != "":
             PROMPT = custom_prompt
         else:
-            if self.custom_instruction != "":
+            if self.custom_content != "":
                 PROMPT = self.RAG_SUMMARY_SYS_PROMPT
             else:
                 PROMPT = self.RAG_DETAIL_SYS_PROMPT
@@ -229,7 +228,7 @@ Score: {}
         Question: {{question}}"""
         
         self.chain = (
-            {"context": lambda x: content if self.custom_instruction == "" else self.custom_instruction , "question": RunnablePassthrough()}
+            {"context": lambda x: content if self.custom_content == "" else self.custom_content , "question": RunnablePassthrough()}
             | ChatPromptTemplate.from_template(prompt_template)
             | ChatOpenAI(streaming=True, max_tokens=0, temperature=self.temperature,
                         callbacks=[StreamingStdOutCallbackHandler()])

@@ -11,15 +11,15 @@ qdrant_client = QdrantClient(url=os.getenv("QDRANT_URL", "http://192.168.1.72:63
 # embedding_model_list = ['BAAI/bge-base-en', 'BAAI/bge-base-en-v1.5', 'BAAI/bge-large-en-v1.5', 'BAAI/bge-small-en', 'BAAI/bge-small-en-v1.5', 'BAAI/bge-small-zh-v1.5', 'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', 'nomic-ai/nomic-embed-text-v1', 'nomic-ai/nomic-embed-text-v1.5', 'thenlper/gte-large', 'mixedbread-ai/mxbai-embed-large-v1', 'intfloat/multilingual-e5-large', 'sentence-transformers/paraphrase-multilingual-mpnet-base-v2', 'jinaai/jina-embeddings-v2-base-en', 'jinaai/jina-embeddings-v2-small-en']
 
 """支援中文的"""
-embedding_model_list = ['BAAI/bge-small-zh-v1.5', 'sentence-transformers/all-MiniLM-L6-v2', 'sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2', 'intfloat/multilingual-e5-large']
+embedding_model_list = ['BAAI/bge-small-zh-v1.5', 'intfloat/multilingual-e5-large']
 
 class Qdrant:
-    def start_qdrant_db() -> None :
+    def qdrant_start_db() -> None :
         try:
             client = docker.DockerClient(base_url=os.getenv("DOCKER_SOCKET_URL", f"unix:///home/{os.getlogin()}/.docker/desktop/docker.sock"))
         except Exception as e:
-            logger.error(str(e))
-            gr.Error("Failed to start qdrant container.")
+            logger.error("Failed to start Qdrant container, Error: " + str(e))
+            gr.Error("無法啟動Qdrant容器.")
             return False
         
         if client.containers.list(all=True, filters={"name": ["qdrant"]}) == []:
@@ -33,14 +33,14 @@ class Qdrant:
                     volumes={f"{os.getcwd()}/qdrant_data": {"bind": "/qdrant/storage", "mode": "rw"}}
                 )
             except Exception as e:
-                logger.error(str(e))
-                gr.Error("Failed to create qdrant container.")
+                logger.error("Failed to start Qdrant container, Error: " + str(e))
+                gr.Error("無法啟動Qdrant容器.")
                 return False
             
         else:
             logger.info("found exist qdrant container, starting container...")
             client.containers.get("qdrant").start()
-            time.sleep(3)
+            time.sleep(5)
         
         collection_list = []
         collections = qdrant_client.get_collections()
@@ -57,6 +57,6 @@ class Qdrant:
                     optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000),
                     hnsw_config=models.HnswConfigDiff(on_disk=True, m=48, ef_construct=100)
                 )
-            
+        
         if not os.path.exists("./standard_response.csv"):
             pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)

@@ -5,9 +5,11 @@ import PyPDF2
 import subprocess
 import gradio as gr
 import pandas as pd
-from utils.qdrant import qdrant_client, embedding_model_list
+from qdrant_client import models
 from utils.llm import LLM
 from utils.logging_colors import logger
+from utils.qdrant import qdrant_client, embedding_model_list
+
 
 class File_process:
     def load_file(file_paths: list):
@@ -23,7 +25,7 @@ class File_process:
             full_file_name =  file_path.name.split("/")[-1]
             file_name, file_extension = os.path.splitext(full_file_name)
             if file_name + file_extension in config_info["uploaded_file"]:
-                gr.Info(f"File {full_file_name} already uploaded. Ignore it...")
+                gr.Info(f"{full_file_name} 已經上傳過了，略過此檔案。")
                 continue
             
             yield f"Processing {full_file_name}"
@@ -37,8 +39,8 @@ class File_process:
                     file_path = os.path.join("pdf_output", full_file_name.replace(file_extension, ".pdf"))
                 except Exception as e:
                     logger.error(f"An error occurred: {str(e)}")
-                    gr.Warning(f"An error occurred: {str(e)}")
-                    yield f"Something went wrong. Please try again."
+                    gr.Warning(f"錯誤: {str(e)}")
+                    yield f"異常錯誤, 請檢查檔案完整性。"
                     return False
             elif file_extension == ".xlsx":
                 """
@@ -75,8 +77,8 @@ class File_process:
                 continue
             else:
                 logger.error(f"File {full_file_name} is not support. Ignore it...")
-                gr.Warning(f"File {full_file_name} is not support. Ignore it...")
-                yield f"File {full_file_name} is not support."
+                gr.Warning(f"檔案 {full_file_name} 為不支援格式，略過此檔案。")
+                yield f"檔案 {full_file_name} 為不支援格式，略過此檔案。"
                 continue
             
             # 讀取pdf檔案
@@ -84,10 +86,10 @@ class File_process:
                 reader = PyPDF2.PdfReader(f)
                 for index in range(len(reader.pages)):
                     document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}{file_extension}"\n頁碼:{index+1}\n**********\n\n"""
-                    text = reader.pages[index].extract_text()
+                    text = reader.pages[index].extract_text().replace("Compal Confidentail", "")
                     encrypt_string = json.loads(open("./config.json", "r", encoding="utf-8").read())["encrypt_string"]
                     if re.search(encrypt_string, text):
-                        gr.Warning(f"Detect encrypt string in page {index+1}. Ignore it...")
+                        gr.Warning(f"找到異常文字 {index+1}， 略過此頁...")
                         continue
                     
                     for index in range(len(embedding_model_list)):
@@ -99,8 +101,8 @@ class File_process:
             config_info["uploaded_file"].append(full_file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
             
-        gr.Info("File uploaded successfully")
-        yield "File uploaded successfully"
+        gr.Info("上傳成功")
+        yield "上傳成功"
 
     def save_answer(choice: str, text_dropdown: str, detail_output_box: list, summary_output_box: list):
         if choice == "Yes":
@@ -125,3 +127,61 @@ class File_process:
                 text_dropdown, detail_output_box[-1][0], 
                 detail_output_box, summary_output_box, topk=5, temperature=0.7):
                 yield gr.update(), "", detail, summary, gr.update()
+
+    def filelist_show():
+        config_info = json.load(open("config.json", "r", encoding="utf-8"))
+        return config_info["uploaded_file"]
+    
+    def filelist_refresh():
+        config_info = json.load(open("config.json", "r", encoding="utf-8"))
+        yield gr.update(choices=config_info["uploaded_file"])
+        return True
+    
+    def qdrant_delete_points(file_list: list, comfirm_checkbox: bool):
+        if not comfirm_checkbox:
+            gr.Warning("請勾選確認移除")
+            return False
+        
+        config_info = json.load(open("config.json", "r", encoding="utf-8"))
+        for file_name in file_list:
+            yield gr.update(value=False), gr.update()
+            qdrant_client.delete(
+                collection_name="another_page_test",
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="filename",
+                                match=models.MatchValue(value=file_name),
+                            ),
+                        ],
+                    )
+                )
+            )
+            config_info["uploaded_file"].remove(file_name)
+            json.dump(config_info, open("config.json", "w", encoding="utf-8"))
+            
+        yield gr.update(), gr.update(choices=File_process.filelist_show(), value=[])
+        gr.Info("刪除成功")
+        return True
+    
+    def dataframe_show():
+        return pd.read_csv("./standard_response.csv")
+    
+    def dataframe_refresh():
+        yield gr.update(value=File_process.dataframe_show())
+        return True
+    
+    def dataframe_on_select(gr_dataframe: gr.DataFrame, evt: gr.SelectData):
+        yield evt.value, evt.index[0], evt.index[1], gr.update(visible=True)
+        
+    def dataframe_save_csv(gr_dataframe: gr.DataFrame, edited_textbox: str, 
+                           checkbox: bool, select_row: str, select_col: str):
+        if not checkbox:
+            gr.Warning("請勾選確認移除")
+            yield edited_textbox, gr.update(value=File_process.dataframe_show())
+        else:
+            gr_dataframe.iat[int(select_row), int(select_col)] = edited_textbox
+            gr_dataframe.to_csv("./standard_response.csv", index=False)
+            yield "", gr.update(value=File_process.dataframe_show())
+            gr.Info("修改成功")

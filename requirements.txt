@@ -5,5 +5,6 @@ qdrant-client
 docker 
 python-dotenv
 gradio
+paramiko # for ssh remote
 fastembed
 pypdf2
