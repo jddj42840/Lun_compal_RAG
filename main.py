@@ -39,6 +39,18 @@ def function_dropdown_change(function_dropdown: str):
     else:
         yield gr.update(visible=False), gr.update(visible=False)
 
+def edit_csv_checkbox_change(checkbox_status: bool):
+    if checkbox_status:
+        yield gr.update(visible=True)
+    else:
+        yield gr.update(visible=False)
+
+def rm_file_checkbox_change(checkbox_status: bool):
+    if checkbox_status:
+        yield gr.update(visible=True)
+    else:
+        yield gr.update(visible=False)
+        
 with gr.Blocks() as chat:
     with gr.Row():
         with gr.Column():
@@ -51,8 +63,8 @@ with gr.Blocks() as chat:
             upload = gr.Files(label="Upload file")
             msg_box = gr.Textbox(label="輸入問題")
             advanced_checkbox = gr.Checkbox(label="Advanced Options", value=False)
-            submit_btn = gr.Button(value="Submit")
-            clear_button = gr.ClearButton()
+            submit_btn = gr.Button(value="送出")
+            clear_button = gr.ClearButton(value="清除")
         
             with gr.Column(visible=False) as advanced_block:
                 embed_model_dropdown = gr.Dropdown(
@@ -93,7 +105,7 @@ with gr.Blocks() as management:
             rm_file_refresh_btn = gr.Button(value="", icon="./icons/refresh.png", interactive=True, elem_classes="btn-refresh")
         with gr.Column():
             rm_file_checkbox = gr.Checkbox(label="確認移除", value=False)
-            rm_file_delete_btn = gr.Button(value="Delete", interactive=True)
+            rm_file_delete_btn = gr.Button(value="移除", interactive=True, visible=False)
     
     # 管理已儲存的正確答案
     with gr.Column(visible=False) as edit_standard_response:    
@@ -109,19 +121,20 @@ with gr.Blocks() as management:
             with gr.Row():
                 with gr.Column():
                     edit_csv_checkbox = gr.Checkbox(label="確認修改", value=False)
-                    save_btn = gr.Button(value="儲存")
+                    edit_csv_save_btn = gr.Button(value="儲存", visible=False)
     
     function_dropdown.change(function_dropdown_change, inputs=[function_dropdown], outputs=[edit_standard_response, collection_manage])
     # rm_file
     rm_file_refresh_btn.click(File_process.filelist_refresh, outputs=[rm_file_dropdown])
     rm_file_delete_btn.click(File_process.qdrant_delete_points, inputs=[rm_file_dropdown, rm_file_checkbox], 
                              outputs=[rm_file_checkbox, rm_file_dropdown])
-    
+    rm_file_checkbox.change(rm_file_checkbox_change, inputs=[rm_file_checkbox], outputs=[rm_file_delete_btn])
     # edit csv
     edit_csv_dataframe.select(File_process.dataframe_on_select, inputs=[edit_csv_dataframe], outputs=[edit_csv_textbox, edit_csv_row, edit_csv_col, edit_section])
-    save_btn.click(File_process.dataframe_save_csv, 
-                   inputs=[edit_csv_dataframe, edit_csv_textbox, edit_csv_checkbox, edit_csv_row, edit_csv_col], 
-                   outputs=[edit_csv_textbox, edit_csv_dataframe])
+    edit_csv_checkbox.change(edit_csv_checkbox_change, inputs=[edit_csv_checkbox], outputs=[edit_csv_save_btn])
+    edit_csv_save_btn.click(File_process.dataframe_save_csv, 
+                   inputs=[edit_csv_dataframe, edit_csv_textbox, edit_csv_row, edit_csv_col], 
+                   outputs=[edit_csv_textbox, edit_csv_dataframe, edit_csv_checkbox])
 
 if __name__ == "__main__":
     Qdrant.qdrant_start_db()

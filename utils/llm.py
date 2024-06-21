@@ -27,8 +27,8 @@ submit_queue = queue.Queue(maxsize=1)
 class LLM:
     def get_model_list() -> list:
         try:
-            text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list", timeout=(10, None)).text)["model_names"]
-            text_model_list
+            text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list", 
+                                                      timeout=(10, None)).text)["model_names"]
             except_file = ["wget-log", "output.log", "Octopus-v2", "Phi-3-mini-4k-instruct", "bge-reranker-large"]
             text_model_list = [f for f in text_model_list if f not in except_file and "gguf" not in f]
             logger.info("Model list fetched successfully")
@@ -41,7 +41,8 @@ class LLM:
             return ["None"]
 
     def send_query(text_dropdown: str, text: str, detail_output_box: list, 
-                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float, temperature: str = "0", prompt: str = "", **kwargs):
+                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float, 
+                   temperature: str = "0", prompt: str = "", **kwargs):
         if text_dropdown == '':
             gr.Warning("請選擇一語言模型")
             return False
@@ -63,11 +64,13 @@ class LLM:
         if not os.path.exists("./standard_response.csv"):
             pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
         csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
-        if (text in csv["Q"].values):
-            detail_output_box[-1][1] = csv[csv["Q"] == text]["A(detail)"].values[0]
-            summary_output_box[-1][1] = csv[csv["Q"] == text]["A(summary)"].values[0]
-            yield "", detail_output_box, summary_output_box, gr.update(visible=False)
-            return True
+        question_list = csv["Q"].values
+        for question in question_list:
+            if text.strip("?!.。") == question.strip("?!.。"):
+                detail_output_box[-1][1] = csv[csv["Q"] == question]["A(detail)"].values[0]
+                summary_output_box[-1][1] = csv[csv["Q"] == question]["A(summary)"].values[0]
+                yield "", detail_output_box, summary_output_box, gr.update(visible=False)
+                return True
 
         if submit_queue.full():
             gr.Warning("聊天佇列以滿, 請稍後再發送請求。")
@@ -114,23 +117,32 @@ class LLM:
         logger.info(f"{text_dropdown} model ready")
         logger.info("Add the request into queue...")
 
-        chain = Chat_api(temperature=float(temperature)).setup_model(
-            search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold), custom_prompt=prompt)
-        submit_queue.put(chain)
+        detail_api = Chat_api(temperature=float(temperature))
+        detail_chain = detail_api.setup_model(search_content=text, topk=topk,
+                                              embed_model=embed_model, custom_prompt=prompt,
+                                              score_threshold=float(score_threshold))
+        submit_queue.put(detail_chain)
         start = time.time()
-        for chunk in chain.stream("#zh-tw " + text):
+        temp = ""
+        for chunk in detail_chain.stream("#zh-tw " + text):
+            temp += chunk
             detail_output_box[-1][1] += chunk
             yield "", detail_output_box, summary_output_box, gr.update(visible=False)
         end = time.time()
-        logger.info(f"Detail output time cost: {end-start}")
+        logger.info(f"")
+        logger.info(f"[Detail output]: {temp} ,time cost: {end-start}")
         
-        chain = Chat_api(kwargs.get("temperature", 0), custom_instruction=detail_output_box[-1][1]).setup_model(search_content=text, topk=topk, embed_model=embed_model, score_threshold=float(score_threshold))
+        summary_api = Chat_api(kwargs.get("temperature", 0), custom_content=detail_output_box[-1][1])
+        summary_chain = summary_api.setup_model(search_content=text, topk=topk, 
+                                               embed_model=embed_model, score_threshold=float(score_threshold))
         start = time.time()
-        for chunk in chain.stream("#zh-tw " + text):
+        temp = ""
+        for chunk in summary_chain.stream("#zh-tw " + text):
+            temp += chunk
             summary_output_box[-1][1] += chunk
             yield "", detail_output_box, summary_output_box, gr.update(visible=False)
         end = time.time()
-        logger.info(f"summary output time cost: {end-start}")
+        logger.info(f"[Summary output]: {temp} ,time cost: {end-start}")
         
         yield "", detail_output_box, summary_output_box, gr.update(visible=True)
         logger.info("remove the request from queue...")
@@ -138,7 +150,8 @@ class LLM:
 
     def get_model() -> str | bool:
         try:
-            response = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/info", timeout=(10, None)).text)
+            response = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/info", 
+                                               timeout=(10, None)).text)
             return response["model_name"]
         except requests.exceptions.ConnectionError:
             logger.error("ConnectionError: Failed to connect to the server.")
@@ -191,22 +204,23 @@ class Chat_api:
 
         # debug use
         # print(content)
-        result_score_list = []  
-        index = 1
-        for r in result:
-            result_score_list.append(r.score)
-            print(dedent("""
------------------------------------
-Index: {}
-Top-K: {}
-Question: {}
-Result: {}
-Score: {}
------------------------------------
-""".format(index, topk, search_content, r.document, r.score)
-            ))
-            index+=1
-        print("Scores: {}".format(result_score_list))
+        
+#         result_score_list = []  
+#         index = 1
+#         for r in result:
+#             result_score_list.append(r.score)
+#             print(dedent("""
+# -----------------------------------
+# Index: {}
+# Top-K: {}
+# Question: {}
+# Result: {}
+# Score: {}
+# -----------------------------------
+# """.format(index, topk, search_content, r.document, r.score)
+#             ))
+#             index+=1
+#         print("Scores: {}".format(result_score_list))
         
         if custom_prompt != "":
             PROMPT = custom_prompt
@@ -225,7 +239,7 @@ Score: {}
         Question: {{question}}"""
         
         self.chain = (
-            {"context": lambda x: content if self.custom_content == "" else self.custom_content , "question": RunnablePassthrough()}
+            {"context": lambda x: content if self.custom_content == "" else self.custom_content, "question": RunnablePassthrough()}
             | ChatPromptTemplate.from_template(prompt_template)
             | ChatOpenAI(streaming=True, max_tokens=0, temperature=self.temperature,
                         callbacks=[StreamingStdOutCallbackHandler()])

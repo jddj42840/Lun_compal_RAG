@@ -116,9 +116,12 @@ class File_process:
                 "Q": detail_output_box[-1][0], 
                 "A(detail)": detail_output_box[-1][1],
                 "A(summary)": summary_output_box[-1][1]}
-            csv = pd.concat([csv, pd.DataFrame(data, index=[0])], ignore_index=True)
+            if detail_output_box[-1][0] in csv["Q"].values:
+                csv.loc[csv["Q"] == detail_output_box[-1][0], ["A(detail)", "A(summary)"]] = [detail_output_box[-1][1], summary_output_box[-1][1]]
+            else:
+                csv = pd.concat([csv, pd.DataFrame(data, index=[0])], ignore_index=True)
             csv.to_csv("./standard_response.csv", index=False)
-            yield gr.update(visible=False), "Save answer successfully."
+            yield gr.update(visible=False), "已儲存回答."
         else:
             if len(detail_output_box) == 0:
                 return False
@@ -176,12 +179,7 @@ class File_process:
         yield evt.value, evt.index[0], evt.index[1], gr.update(visible=True)
         
     def dataframe_save_csv(gr_dataframe: gr.DataFrame, edited_textbox: str, 
-                           checkbox: bool, select_row: str, select_col: str):
-        if not checkbox:
-            gr.Warning("請勾選確認移除")
-            yield edited_textbox, gr.update(value=File_process.dataframe_show())
-        else:
-            gr_dataframe.iat[int(select_row), int(select_col)] = edited_textbox
-            gr_dataframe.to_csv("./standard_response.csv", index=False)
-            yield "", gr.update(value=File_process.dataframe_show())
-            gr.Info("修改成功")
+                           select_row: str, select_col: str):
+        gr_dataframe.iat[int(select_row), int(select_col)] = edited_textbox
+        gr_dataframe.to_csv("./standard_response.csv", index=False)
+        yield "", gr.update(value=File_process.dataframe_show()), gr.update(value=False)
