@@ -127,3 +127,61 @@ class File_process:
                 text_dropdown, detail_output_box[-1][0], 
                 detail_output_box, summary_output_box, topk=5, temperature=0.7):
                 yield gr.update(), "", detail, summary, gr.update()
+
+    def filelist_show():
+        config_info = json.load(open("config.json", "r", encoding="utf-8"))
+        return config_info["uploaded_file"]
+    
+    def filelist_refresh():
+        config_info = json.load(open("config.json", "r", encoding="utf-8"))
+        yield gr.update(choices=config_info["uploaded_file"])
+        return True
+    
+    def qdrant_delete_points(file_list: list, comfirm_checkbox: bool):
+        if not comfirm_checkbox:
+            gr.Warning("請勾選確認移除")
+            return False
+        
+        config_info = json.load(open("config.json", "r", encoding="utf-8"))
+        for file_name in file_list:
+            yield gr.update(value=False), gr.update()
+            qdrant_client.delete(
+                collection_name="another_page_test",
+                points_selector=models.FilterSelector(
+                    filter=models.Filter(
+                        must=[
+                            models.FieldCondition(
+                                key="filename",
+                                match=models.MatchValue(value=file_name),
+                            ),
+                        ],
+                    )
+                )
+            )
+            config_info["uploaded_file"].remove(file_name)
+            json.dump(config_info, open("config.json", "w", encoding="utf-8"))
+            
+        yield gr.update(), gr.update(choices=File_process.filelist_show(), value=[])
+        gr.Info("刪除成功")
+        return True
+    
+    def dataframe_show():
+        return pd.read_csv("./standard_response.csv")
+    
+    def dataframe_refresh():
+        yield gr.update(value=File_process.dataframe_show())
+        return True
+    
+    def dataframe_on_select(gr_dataframe: gr.DataFrame, evt: gr.SelectData):
+        yield evt.value, evt.index[0], evt.index[1], gr.update(visible=True)
+        
+    def dataframe_save_csv(gr_dataframe: gr.DataFrame, edited_textbox: str, 
+                           checkbox: bool, select_row: str, select_col: str):
+        if not checkbox:
+            gr.Warning("請勾選確認移除")
+            yield edited_textbox, gr.update(value=File_process.dataframe_show())
+        else:
+            gr_dataframe.iat[int(select_row), int(select_col)] = edited_textbox
+            gr_dataframe.to_csv("./standard_response.csv", index=False)
+            yield "", gr.update(value=File_process.dataframe_show())
+            gr.Info("修改成功")
