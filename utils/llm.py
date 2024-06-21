@@ -60,6 +60,8 @@ class LLM:
         detail_output_box.append([text, ""])
         summary_output_box.append([text, ""])
         
+        if not os.path.exists("./standard_response.csv"):
+            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
         csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
         if (text in csv["Q"].values):
             detail_output_box[-1][1] = csv[csv["Q"] == text]["A(detail)"].values[0]
