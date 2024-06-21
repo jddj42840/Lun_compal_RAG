@@ -5,9 +5,11 @@ import PyPDF2
 import subprocess
 import gradio as gr
 import pandas as pd
-from utils.qdrant import qdrant_client
+from qdrant_client import models
 from utils.llm import LLM
 from utils.logging_colors import logger
+from utils.qdrant import qdrant_client, embedding_model_list
+
 
 class File_process:
     def load_file(file_paths: list):
@@ -23,7 +25,7 @@ class File_process:
             full_file_name =  file_path.name.split("/")[-1]
             file_name, file_extension = os.path.splitext(full_file_name)
             if file_name + file_extension in config_info["uploaded_file"]:
-                gr.Info(f"File {full_file_name} already uploaded. Ignore it...")
+                gr.Info(f"{full_file_name} 已經上傳過了，略過此檔案。")
                 continue
             
             yield f"Processing {full_file_name}"
@@ -37,8 +39,8 @@ class File_process:
                     file_path = os.path.join("pdf_output", full_file_name.replace(file_extension, ".pdf"))
                 except Exception as e:
                     logger.error(f"An error occurred: {str(e)}")
-                    gr.Warning(f"An error occurred: {str(e)}")
-                    yield f"Something went wrong. Please try again."
+                    gr.Warning(f"錯誤: {str(e)}")
+                    yield f"異常錯誤, 請檢查檔案完整性。"
                     return False
             elif file_extension == ".xlsx":
                 """
@@ -67,14 +69,16 @@ class File_process:
                         qa_text += f"Reference: {row['Reference']}\n\n"
                     csv_data.append(document_prefix + qa_text)
                     
-                qdrant_client.add(
-                    collection_name="compal_rag",
-                    documents=csv_data)
+                for index in range(len(embedding_model_list)):
+                    qdrant_client.set_model(embedding_model_list[index], cache_dir="./.cache")
+                    qdrant_client.add(
+                        collection_name=embedding_model_list[index].replace("/", "_"),
+                        documents=csv_data)
                 continue
             else:
                 logger.error(f"File {full_file_name} is not support. Ignore it...")
-                gr.Warning(f"File {full_file_name} is not support. Ignore it...")
-                yield f"File {full_file_name} is not support."
+                gr.Warning(f"檔案 {full_file_name} 為不支援格式，略過此檔案。")
+                yield f"檔案 {full_file_name} 為不支援格式，略過此檔案。"
                 continue
             
             # 讀取pdf檔案
@@ -82,23 +86,28 @@ class File_process:
                 reader = PyPDF2.PdfReader(f)
                 for index in range(len(reader.pages)):
                     document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}{file_extension}"\n頁碼:{index+1}\n**********\n\n"""
-                    text = reader.pages[index].extract_text()
+                    text = reader.pages[index].extract_text().replace("Compal Confidentail", "")
                     encrypt_string = json.loads(open("./config.json", "r", encoding="utf-8").read())["encrypt_string"]
                     if re.search(encrypt_string, text):
-                        gr.Warning(f"Detect encrypt string in page {index+1}. Ignore it...")
+                        gr.Warning(f"找到異常文字 {index+1}， 略過此頁...")
                         continue
-                    qdrant_client.add(
-                        collection_name="compal_rag",
-                        documents=[document_prefix + text])
+                    
+                    for index in range(len(embedding_model_list)):
+                        qdrant_client.set_model(embedding_model_list[index], cache_dir="./.cache")
+                        qdrant_client.add(
+                            collection_name=embedding_model_list[index].replace("/", "_"),
+                            documents=[document_prefix + text])
                     
             config_info["uploaded_file"].append(full_file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
             
-        gr.Info("File uploaded successfully")
-        yield "File uploaded successfully"
+        gr.Info("上傳成功")
+        yield "上傳成功"
 
-    def save_answer(choice: gr.Button, text_dropdown: str, text: str, detail_output_box: gr.Chatbot, summary_output_box: gr.Chatbot):
+    def save_answer(choice: str, text_dropdown: str, detail_output_box: list, summary_output_box: list):
         if choice == "Yes":
+            if len(detail_output_box) == 0:
+                return False
             csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
             if detail_output_box[-1][0] in csv["Q"].values:
                 yield gr.update(visible=False), ""
@@ -111,6 +120,8 @@ class File_process:
             csv.to_csv("./standard_response.csv", index=False)
             yield gr.update(visible=False), "Save answer successfully."
         else:
+            if len(detail_output_box) == 0:
+                return False
             yield gr.update(visible=False), "", detail_output_box, summary_output_box, "Generate new answer."
             for _, detail, summary, _ in LLM.send_query(
                 text_dropdown, detail_output_box[-1][0], 
