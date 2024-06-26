@@ -40,7 +40,7 @@ class Qdrant:
         else:
             logger.info("found exist qdrant container, starting container...")
             client.containers.get("qdrant").start()
-            time.sleep(5)
+            # time.sleep(5)
         
         collection_list = []
         collections = qdrant_client.get_collections()

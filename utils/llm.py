@@ -1,14 +1,17 @@
 import os
-import queue
 import re
 import time
 import json
+import uuid
+import redis
 import requests
 import gradio as gr
 import pandas as pd
-from textwrap import dedent
 from utils.logging_colors import logger
 from utils.qdrant import qdrant_client, embedding_model_list
+from textwrap import dedent
+from fuzzywuzzy import process
+from celery import Celery, chain
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
@@ -18,19 +21,24 @@ from langchain.callbacks import StreamingStdOutCallbackHandler
 protocal = os.getenv("PROTOCAL", "http")
 url = os.getenv("SERVER_URL", "10.20.1.96")
 port = os.getenv("PORT", "5001")
+celery_app = Celery("tasks", broker_connection_retry_on_startup=True)
+celery_app.config_from_object('utils.celery_config')
+redis_client = redis.Redis(host=os.getenv("REDIS_HOST", "127.0.0.1"),
+                           port=os.getenv("REDIS_PORT", "6379"),
+                           db=0)
 
-# 用來控制多人同時 Submit 要處理的請求佇列，多個請求傳入時最多只接受一個請求
-submit_queue = queue.Queue(maxsize=1)
-'''用來控制多人同時 Submit 要處理的請求佇列，多個請求傳入時最多只接受一個請求'''
+# custom prompt 正式版後續要移除
 
 
 class LLM:
     def get_model_list() -> list:
         try:
-            text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list", 
+            text_model_list = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/list",
                                                       timeout=(10, None)).text)["model_names"]
-            except_file = ["wget-log", "output.log", "Octopus-v2", "Phi-3-mini-4k-instruct", "bge-reranker-large"]
-            text_model_list = [f for f in text_model_list if f not in except_file and "gguf" not in f]
+            except_file = ["wget-log", "output.log", "Octopus-v2",
+                           "Phi-3-mini-4k-instruct", "bge-reranker-large"]
+            text_model_list = [
+                f for f in text_model_list if f not in except_file and "gguf" not in f]
             logger.info("Model list fetched successfully")
             return text_model_list
         except requests.exceptions.ConnectionError:
@@ -40,117 +48,132 @@ class LLM:
             logger.error("Timeout: The request timed out.")
             return ["None"]
 
-    def send_query(text_dropdown: str, text: str, detail_output_box: list, 
-                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float, 
+    def send_query(text_dropdown: str, text: str, detail_output_box: list,
+                   summary_output_box: list, embed_model: str, topk: str, score_threshold: float,
                    temperature: str = "0", prompt: str = "", **kwargs):
+        """
+        向 LLM 發送問題請求
+
+        Parameters:
+            * text_dropdown (str): 使用者選擇的語言模型
+            * text (str): 使用者輸入的問題
+            * detail_output_box (list): 
+            * summary_output_box (list):
+            * embed_model (str): 使用者選擇的詞嵌入模型
+            * topk (str): 使用者設定的 top-K
+            * score_threshold (float): 使用者設定的 score threshold
+            * temperature (str): 使用者設定的 temperature
+            * prompt (str): 測試設定的 prompt
+        """
         if text_dropdown == '':
             gr.Warning("請選擇一語言模型")
             return False
-        
+
         if embed_model == None:
             gr.Warning("請選擇一詞嵌入模型")
             return False
         elif embed_model not in embedding_model_list:
             gr.Warning("無相關詞嵌入模型")
             return False
-        
+
         if text == '':
             gr.Warning("請輸入問題")
             return False
-        
+
         detail_output_box.append([text, ""])
         summary_output_box.append([text, ""])
-        
-        if not os.path.exists("./standard_response.csv"):
-            pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv("./standard_response.csv", index=False)
-        csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
-        question_list = csv["Q"].values
-        for question in question_list:
-            if text.strip("?!.。") == question.strip("?!.。"):
-                detail_output_box[-1][1] = csv[csv["Q"] == question]["A(detail)"].values[0]
-                summary_output_box[-1][1] = csv[csv["Q"] == question]["A(summary)"].values[0]
-                yield "", detail_output_box, summary_output_box, gr.update(visible=False)
-                return True
 
-        if submit_queue.full():
-            gr.Warning("聊天佇列以滿, 請稍後再發送請求。")
-            return False
-        else:
-            model_data = json.load(open("config.json", "r", encoding="utf-8"))["model_config"]
-            if re.search(r"gguf", text_dropdown):
-                args = model_data["gguf"]
-                gr.Info("gguf格式的模型可能因為評估題詞而載入過久,請謹慎使用.")
-            elif re.search(r"2b|2B|6b|6B|7b|7B|8b|8B|128k", text_dropdown):
-                args = model_data["2&7&8B"]
-            elif re.search(r"13b|13B", text_dropdown):
-                args = model_data["13B"]
-            else:
-                logger.error("未找到相關設定檔")
-                raise gr.Error("未找到相關設定檔")
-            logger.info(f"args get")
-            
-            logger.info("Loading model...")
-            try:    
-                response = json.loads(requests.post(
-                    f"{protocal}://{url}:{port}/v1/internal/model/load",
-                    json={
-                        "model_name": text_dropdown,
-                        "args": args,
-                        "settings": {"instruction_template": "Alpaca"}
-                    },
-                    timeout=(10, None)
-                ).text)
-                if response["status"] == 0:
-                    logger.info("Model loaded successfully")
-                    gr.Info("語言模型讀取成功")
-                else: 
-                    logger.error("failed to load model")
-                    raise gr.Error("讀取模型失敗...")
-            except requests.exceptions.Timeout:
-                logger.error("Timeout request...")
-                raise gr.Error("連線逾時...")
-            except requests.exceptions.RequestException as e:
-                logger.error("Bad request...")
-                raise gr.Error("錯誤...")
-        
-        
+        # 判斷是否有匹配到歷史回答紀錄
+        if 'match_bool' not in kwargs:
+            if not os.path.exists("./standard_response.csv"):
+                pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv(
+                    "./standard_response.csv", index=False)
+            # dropna 去掉csv中空(nan)的資料欄位
+            csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip').dropna(how="any")
+            question_list = csv["Q"].values
+            questions = "\n--------------------------\n"
+            semantic_api = Chat_api(
+                temperature=float(temperature),
+                custom_content=questions.join(question_list),
+                streaming=False
+            )
+            semantic_chain = semantic_api.setup_model(user_question=text, topk=topk, embed_model=embed_model, custom_prompt=prompt,
+                                                      score_threshold=float(score_threshold), question_type="semantic")
+
+            temp = ""
+            result = semantic_chain.invoke("#zh-tw " + text)
+            if '沒有相關資料' not in result:
+                temp = json.loads(result)
+                match_question, match_score = process.extractOne(
+                    temp["question"],
+                    question_list
+                )
+                print("result", result)
+                print("match_question", match_question)
+                print("match_score", match_score)
+
+                # 判斷匹配的分數是否超過 80
+                if match_score >= 80:
+                    question_index = question_list.tolist().index(match_question)
+                    print("question_index", question_index)
+                    detail_output_box[-1][1] = csv["A(detail)"].values[question_index]
+                    summary_output_box[-1][1] = csv["A(summary)"].values[question_index]
+                    yield "", detail_output_box, summary_output_box, gr.update(visible=True), gr.update()
+                    return True
+
         logger.info(f"{text_dropdown} model ready")
         logger.info("Add the request into queue...")
 
-        detail_api = Chat_api(temperature=float(temperature))
-        detail_chain = detail_api.setup_model(search_content=text, topk=topk,
-                                              embed_model=embed_model, custom_prompt=prompt,
-                                              score_threshold=float(score_threshold))
-        submit_queue.put(detail_chain)
+        # 建立uuid
+        detail_task_id = str(uuid.uuid4())
+        summary_task_id = str(uuid.uuid4())
+
+        tasks_chain = chain(
+            detail_task.s(detail_task_id, temperature, text, topk,
+                          embed_model, prompt, score_threshold),
+            summary_task.s(summary_task_id, detail_task_id,
+                           temperature, text, topk, embed_model, score_threshold)
+        )
+        tasks_chain.apply_async()
+        time.sleep(1)
+
+        # detail task
         start = time.time()
-        temp = ""
-        for chunk in detail_chain.stream("#zh-tw " + text):
-            temp += chunk
-            detail_output_box[-1][1] += chunk
-            yield "", detail_output_box, summary_output_box, gr.update(visible=False)
+        while True:
+            output = redis_client.lrange(detail_task_id, 0, -1)
+            if output == []:
+                continue
+            if output[-1] == b"#end#":
+                break
+            output = "".join(index.decode("utf-8") for index in output)
+            detail_output_box[-1][1] = output
+            yield "", detail_output_box, summary_output_box, gr.update(visible=False), gr.update()
         end = time.time()
-        logger.info(f"")
-        logger.info(f"[Detail output]: {temp} ,time cost: {end-start}")
-        
-        summary_api = Chat_api(kwargs.get("temperature", 0), custom_content=detail_output_box[-1][1])
-        summary_chain = summary_api.setup_model(search_content=text, topk=topk, 
-                                               embed_model=embed_model, score_threshold=float(score_threshold))
+        logger.info(
+            f"[Detail output]: {detail_output_box[-1][1]} ,time cost: {end-start}")
+
+        # summary task
         start = time.time()
-        temp = ""
-        for chunk in summary_chain.stream("#zh-tw " + text):
-            temp += chunk
-            summary_output_box[-1][1] += chunk
-            yield "", detail_output_box, summary_output_box, gr.update(visible=False)
+        while True:
+            output = redis_client.lrange(summary_task_id, 0, -1)
+            if output == []:
+                continue
+            if output[-1] == b"#end#":
+                break
+            output = "".join(index.decode("utf-8") for index in output)
+            summary_output_box[-1][1] = output
+            yield "", detail_output_box, summary_output_box, gr.update(visible=False), gr.update()
+            time.sleep(0.05)
         end = time.time()
-        logger.info(f"[Summary output]: {temp} ,time cost: {end-start}")
-        
-        yield "", detail_output_box, summary_output_box, gr.update(visible=True)
-        logger.info("remove the request from queue...")
-        submit_queue.get()
+        logger.info(
+            f"[Detail output]: {detail_output_box[-1][1]} ,time cost: {end-start}")
+        yield "", detail_output_box, summary_output_box, gr.update(visible=True), ""
+
+        logger.info("All tasks completed.")
 
     def get_model() -> str | bool:
         try:
-            response = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/info", 
+            response = json.loads(requests.get(f"{protocal}://{url}:{port}/v1/internal/model/info",
                                                timeout=(10, None)).text)
             return response["model_name"]
         except requests.exceptions.ConnectionError:
@@ -170,42 +193,72 @@ class Chat_api:
     role: 對話角色
     """
     
+    SEMANTIC_SYS_PROMPT = """以下的參考資料為一系列的問題敘述，參考資料中使用"--------------------------"來區分不同的問題。
+若參考資料中沒有與使用者問題敘述最相似的資料，則回答"沒有相關資料"，並停止回答。
+
+若參考資料中有與使用者問題敘述相似的問題，就使用 JSON 格式輸出，KEY 為"question"，VALUE 為<最相近的資料>，並且 VALUE 的內容要與參考資料中的問題完全一致。
+
+輸出必須使用繁體中文。"""
+
     RAG_DETAIL_SYS_PROMPT = dedent("""你必須合併參考資料中的資訊來回答問題，並避免資料混置的問題。
 
-若沒有辦法從以下參考資料中取得資訊或參考資料為空白，則回答"沒有相關資料"，且不須回覆參考檔案名稱及頁碼。
+若沒有辦法從以下參考資料中取得資訊或參考資料為空白，則回答"沒有相關資料"，則請不要回覆任何參考檔案名稱及頁碼。
 
 輸出必須使用繁體中文，並且在回答的最後加入參考檔案名稱及頁碼。
         """)
-    
+
     RAG_SUMMARY_SYS_PROMPT = dedent("""
         你是一個客服聊天機器人，請將使用者提供的敘述做summary, 回答越精簡越好, 若提供的內容中有參考資料, 請在回答中加入參考資料檔案的名稱與頁碼，並且用繁體中文回覆。""")
-    
-    def __init__(self, temperature: float = 0, role: str = "assistant", custom_content: str = ""):
+
+    def __init__(self, temperature: float = 0, role: str = "assistant",
+                 custom_content: str = "", streaming: bool = True):
+        """
+
+        Parameters:
+        * temperature(str): 前端可以設定，決定模型回覆固定參數
+        * role(str): 若使用text-generation-webui 則不須更動，若不是則須查詢role的角色為何
+        * custom_content(str): 決定要給模型的參考資料
+        * streaming(bool): 是否啟用串流輸出
+        """
+        
         self.temperature = temperature
         self.role = role
         self.custom_content = custom_content
-        
-    def setup_model(self, score_threshold: int, embed_model: str, 
-                    search_content: str = "", topk: str = "5", custom_prompt: str = "", **kwargs) -> ChatOpenAI:
-        if topk == "": 
+        self.streaming = streaming
+
+    def setup_model(self, score_threshold: float, embed_model: str, user_question: str = "",
+                    topk: str = "5", custom_prompt: str = "", question_type: str = None, **kwargs) -> ChatOpenAI:
+        """
+
+        Parameters:
+        * score_threshold(int): 相似搜尋閥值
+        * embed_model(str): 決定要使用的詞嵌入模型
+        * user_question(str): 使用者的提問
+        * topk(str): 相似搜尋搜尋的筆數
+        * custom_prompt(str): 決定要給系統的題詞
+        * question_type(str): 決定當前的請求為語意、詳細、摘要的種類
+        """
+        if topk == "":
             topk = "5"
-            
+
         if score_threshold == 0:
             score_threshold = None
-        
+
         qdrant_client.set_model(embed_model, cache_dir="./.cache")
         result = qdrant_client.query(
             collection_name=embed_model.replace("/", "_"),
-            query_text=search_content,
+            query_text=user_question,
             limit=int(topk),
-            score_threshold=score_threshold)
-        
-        content = "\n\n--------------------------\n\n".join(text.metadata["document"] for text in result)
+            score_threshold=score_threshold
+        )
+
+        content = "\n\n--------------------------\n\n".join(
+            text.metadata["document"] for text in result)
 
         # debug use
         # print(content)
-        
-#         result_score_list = []  
+
+#         result_score_list = []
 #         index = 1
 #         for r in result:
 #             result_score_list.append(r.score)
@@ -217,33 +270,66 @@ class Chat_api:
 # Result: {}
 # Score: {}
 # -----------------------------------
-# """.format(index, topk, search_content, r.document, r.score)
+# """.format(index, topk, user_question, r.document, r.score)
 #             ))
 #             index+=1
 #         print("Scores: {}".format(result_score_list))
-        
+
         if custom_prompt != "":
             PROMPT = custom_prompt
         else:
-            if self.custom_content != "":
-                PROMPT = self.RAG_SUMMARY_SYS_PROMPT
-            else:
-                PROMPT = self.RAG_DETAIL_SYS_PROMPT
+            match question_type:
+                case "summary":
+                    PROMPT = self.RAG_SUMMARY_SYS_PROMPT
+                case "detail":
+                    PROMPT = self.RAG_DETAIL_SYS_PROMPT
+                case "semantic":
+                    PROMPT = self.SEMANTIC_SYS_PROMPT
 
         prompt_template = f"""{PROMPT}
         
         # 參考資料
-        {{context}} 
+        {{content}} 
 
         # 使用者問題
         Question: {{question}}"""
-        
+
         self.chain = (
-            {"context": lambda x: content if self.custom_content == "" else self.custom_content, "question": RunnablePassthrough()}
+            {"content": lambda x: content if self.custom_content ==
+                "" else self.custom_content, "question": RunnablePassthrough()}
             | ChatPromptTemplate.from_template(prompt_template)
-            | ChatOpenAI(streaming=True, max_tokens=0, temperature=self.temperature,
-                        callbacks=[StreamingStdOutCallbackHandler()])
+            | ChatOpenAI(streaming=self.streaming, max_tokens=0, temperature=self.temperature,
+                         callbacks=[StreamingStdOutCallbackHandler()])
             | StrOutputParser()
         )
         return self.chain
-    
+
+
+@celery_app.task
+def detail_task(detail_task_id: str,  temperature: str, text: str,
+                topk: str,  embed_model: str, prompt: str, score_threshold: str):
+    detail_api = Chat_api(temperature=float(temperature))
+    detail_chain = detail_api.setup_model(user_question=text, topk=topk, embed_model=embed_model, 
+                                          custom_prompt=prompt,score_threshold=float(score_threshold),
+                                          question_type="detail")
+    for chunk in detail_chain.stream("#zh-tw " + text):
+        redis_client.rpush(detail_task_id, chunk)
+    redis_client.rpush(detail_task_id, "#end#")
+    return True
+
+
+@celery_app.task
+def summary_task(_, summary_task_id: str, detail_task_id: str, temperature: str, text: str,
+                 topk: str, embed_model: str, score_threshold: str):
+    output = redis_client.lrange(detail_task_id, 0, -1)
+    # 去除用來判斷於研模型是否生成完畢的標記("#end#")
+    output.pop()
+
+    summary_api = Chat_api(temperature=float(temperature), custom_content="".join(
+        index.decode("utf-8") for index in output))
+    summary_chain = summary_api.setup_model(user_question=text, topk=topk, embed_model=embed_model, 
+                                            score_threshold=float(score_threshold), question_type="summary")
+    for chunk in summary_chain.stream("#zh-tw " + text):
+        redis_client.rpush(summary_task_id, chunk)
+    redis_client.rpush(summary_task_id, "#end#")
+    return True

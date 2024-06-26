@@ -1,7 +1,17 @@
+# text webui 
 SERVER_URL=<llm_api_ipv4>
 PORT=<llm_api_port>
-QDRANT_URL="http://<qdrant_container_ipv4>:6333"
 OPENAI_API_KEY=sk-111111111111111111111111111111111111111111111111
 OPENAI_API_BASE=<llm host ipv4>
 OPENAI_BASE_URL=<llm host ipv4>
+
+# qdrant
+QDRANT_URL="http://<qdrant_container_ipv4>:6333"
+
+# docker
 DOCKER_SOCKET_URL=<please read Readme.md file>
+
+# redis
+REDIS_URL=redis://<redis_container_ipv4>:6379
+REDIS_HOST=<redis_host_ipv4>
+REDIS_PORT=<usually use 6379>
