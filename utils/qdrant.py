@@ -1,5 +1,4 @@
 import os
-import time
 import docker
 import gradio as gr
 import pandas as pd

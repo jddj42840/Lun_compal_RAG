@@ -1,5 +1,4 @@
 import os
-import re
 import time
 import json
 import uuid
@@ -12,6 +11,7 @@ from utils.qdrant import qdrant_client, embedding_model_list
 from textwrap import dedent
 from fuzzywuzzy import process
 from celery import Celery, chain
+from celery.result import AsyncResult
 from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.runnables import RunnablePassthrough
@@ -85,37 +85,32 @@ class LLM:
 
         # 判斷是否有匹配到歷史回答紀錄
         if 'match_bool' not in kwargs:
-            if not os.path.exists("./standard_response.csv"):
-                pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv(
-                    "./standard_response.csv", index=False)
             # dropna 去掉csv中空(nan)的資料欄位
             csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip').dropna(how="any")
             question_list = csv["Q"].values
-            questions = "\n--------------------------\n"
-            semantic_api = Chat_api(
-                temperature=float(temperature),
-                custom_content=questions.join(question_list),
-                streaming=False
-            )
-            semantic_chain = semantic_api.setup_model(user_question=text, topk=topk, embed_model=embed_model, custom_prompt=prompt,
-                                                      score_threshold=float(score_threshold), question_type="semantic")
+            
+            # question_search task
+            question_search_task_id = str(uuid.uuid4())
+            question_search_task.delay(question_search_task_id, question_list.tolist(), temperature, text, topk, embed_model, score_threshold)
+            
+            while True:
+                result = redis_client.lrange(question_search_task_id, 0, -1)
+                if result == []:
+                    continue
+                if result[-1] == b"#end#":
+                    result = result[0].decode("utf-8")
+                    break
 
-            temp = ""
-            result = semantic_chain.invoke("#zh-tw " + text)
             if '沒有相關資料' not in result:
                 temp = json.loads(result)
                 match_question, match_score = process.extractOne(
                     temp["question"],
                     question_list
                 )
-                print("result", result)
-                print("match_question", match_question)
-                print("match_score", match_score)
 
                 # 判斷匹配的分數是否超過 80
                 if match_score >= 80:
                     question_index = question_list.tolist().index(match_question)
-                    print("question_index", question_index)
                     detail_output_box[-1][1] = csv["A(detail)"].values[question_index]
                     summary_output_box[-1][1] = csv["A(summary)"].values[question_index]
                     yield "", detail_output_box, summary_output_box, gr.update(visible=True), gr.update()
@@ -187,13 +182,7 @@ class LLM:
 
 
 class Chat_api:
-    """
-    is_rag: 是否使用RAG
-    temperature: 模型感情
-    role: 對話角色
-    """
-    
-    SEMANTIC_SYS_PROMPT = """以下的參考資料為一系列的問題敘述，參考資料中使用"--------------------------"來區分不同的問題。
+    QUESTION_SEARCH_SYS_PROMPT = """以下的參考資料為一系列的問題敘述，參考資料中使用"--------------------------"來區分不同的問題。
 若參考資料中沒有與使用者問題敘述最相似的資料，則回答"沒有相關資料"，並停止回答。
 
 若參考資料中有與使用者問題敘述相似的問題，就使用 JSON 格式輸出，KEY 為"question"，VALUE 為<最相近的資料>，並且 VALUE 的內容要與參考資料中的問題完全一致。
@@ -255,26 +244,6 @@ class Chat_api:
         content = "\n\n--------------------------\n\n".join(
             text.metadata["document"] for text in result)
 
-        # debug use
-        # print(content)
-
-#         result_score_list = []
-#         index = 1
-#         for r in result:
-#             result_score_list.append(r.score)
-#             print(dedent("""
-# -----------------------------------
-# Index: {}
-# Top-K: {}
-# Question: {}
-# Result: {}
-# Score: {}
-# -----------------------------------
-# """.format(index, topk, user_question, r.document, r.score)
-#             ))
-#             index+=1
-#         print("Scores: {}".format(result_score_list))
-
         if custom_prompt != "":
             PROMPT = custom_prompt
         else:
@@ -283,9 +252,9 @@ class Chat_api:
                     PROMPT = self.RAG_SUMMARY_SYS_PROMPT
                 case "detail":
                     PROMPT = self.RAG_DETAIL_SYS_PROMPT
-                case "semantic":
-                    PROMPT = self.SEMANTIC_SYS_PROMPT
-
+                case "question_search":
+                    PROMPT = self.QUESTION_SEARCH_SYS_PROMPT
+                    
         prompt_template = f"""{PROMPT}
         
         # 參考資料
@@ -304,14 +273,32 @@ class Chat_api:
         )
         return self.chain
 
+@celery_app.task
+def question_search_task(question_search_task_id: str, question_list: list, temperature: str, text: str,
+                topk: str,  embed_model: str, score_threshold: str):
+    questions = "\n--------------------------\n"
+    question_search_api = Chat_api(
+        temperature=float(temperature),
+        custom_content=questions.join(question_list),
+        streaming=False
+    )
+    question_search_chain = question_search_api.setup_model(
+        user_question=text, topk=topk, embed_model=embed_model,
+        score_threshold=float(score_threshold), question_type="question_search")
+    result = question_search_chain.invoke("#zh-tw " + text)
+    redis_client.rpush(question_search_task_id, result)
+    redis_client.rpush(question_search_task_id, "#end#")
+    return True
+
 
 @celery_app.task
 def detail_task(detail_task_id: str,  temperature: str, text: str,
                 topk: str,  embed_model: str, prompt: str, score_threshold: str):
     detail_api = Chat_api(temperature=float(temperature))
-    detail_chain = detail_api.setup_model(user_question=text, topk=topk, embed_model=embed_model, 
-                                          custom_prompt=prompt,score_threshold=float(score_threshold),
-                                          question_type="detail")
+    detail_chain = detail_api.setup_model(
+        user_question=text, topk=topk, embed_model=embed_model, 
+        custom_prompt=prompt,score_threshold=float(score_threshold),
+        question_type="detail")
     for chunk in detail_chain.stream("#zh-tw " + text):
         redis_client.rpush(detail_task_id, chunk)
     redis_client.rpush(detail_task_id, "#end#")
@@ -327,8 +314,9 @@ def summary_task(_, summary_task_id: str, detail_task_id: str, temperature: str,
 
     summary_api = Chat_api(temperature=float(temperature), custom_content="".join(
         index.decode("utf-8") for index in output))
-    summary_chain = summary_api.setup_model(user_question=text, topk=topk, embed_model=embed_model, 
-                                            score_threshold=float(score_threshold), question_type="summary")
+    summary_chain = summary_api.setup_model(
+        user_question=text, topk=topk, embed_model=embed_model, 
+        score_threshold=float(score_threshold), question_type="summary")
     for chunk in summary_chain.stream("#zh-tw " + text):
         redis_client.rpush(summary_task_id, chunk)
     redis_client.rpush(summary_task_id, "#end#")

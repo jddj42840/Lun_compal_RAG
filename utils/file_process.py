@@ -193,6 +193,9 @@ class File_process:
         return True
 
     def dataframe_show():
+        if not os.path.exists("./standard_response.csv"):
+                pd.DataFrame(columns=["Q", "A(detail)", "A(summary)"]).to_csv(
+                    "./standard_response.csv", index=False)
         return pd.read_csv("./standard_response.csv")
 
     def dataframe_refresh():

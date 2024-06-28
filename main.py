@@ -1,9 +1,9 @@
+from dotenv import load_dotenv
+load_dotenv(override=True, dotenv_path=".env")
 from utils.file_process import File_process
 from utils.qdrant import Qdrant, embedding_model_list
 from utils.llm import LLM
 import gradio as gr
-from dotenv import load_dotenv
-load_dotenv(override=True, dotenv_path=".env")
 
 css = """
 .btn-refresh {
@@ -182,4 +182,5 @@ if __name__ == "__main__":
     Qdrant.qdrant_start_db()
     app = gr.TabbedInterface(interface_list=[chat, management], tab_names=["聊天", "管理"],
                              title="Compal RAG", css=css)
+    app.queue(max_size=None)
     app.launch(server_port=7861, server_name="0.0.0.0")
