@@ -24,7 +24,7 @@ class Qdrant:
             logger.error("Qdrant connect refuse.")
             sys.exit(1)
         except Exception as e:
-            logger.error(f"Qdrant connection failed. Reason: {e}")
+            logger.error(f"Qdrant connection failed. Reason: {str(e)}")
             sys.exit(1)
         
         collection_list = []

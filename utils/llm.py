@@ -99,6 +99,7 @@ class LLM:
                     continue
                 if result[-1] == b"#end#":
                     result = result[0].decode("utf-8")
+                    logger.info(f"[Question search output (task_ID: {question_search_task_id})]: {result}")
                     break
 
             if '沒有相關資料' not in result:
@@ -115,9 +116,6 @@ class LLM:
                     summary_output_box[-1][1] = csv["A(summary)"].values[question_index]
                     yield "", detail_output_box, summary_output_box, gr.update(visible=True), gr.update()
                     return True
-
-        logger.info(f"{text_dropdown} model ready")
-        logger.info("Add the request into queue...")
 
         # 建立uuid
         detail_task_id = str(uuid.uuid4())
@@ -145,7 +143,7 @@ class LLM:
             yield "", detail_output_box, summary_output_box, gr.update(visible=False), gr.update()
         end = time.time()
         logger.info(
-            f"[Detail output]: {detail_output_box[-1][1]} ,time cost: {end-start}")
+            f"[Detail output (task_ID: {detail_task_id}]: {detail_output_box[-1][1]} ,time cost: {end-start}")
 
         # summary task
         start = time.time()
@@ -161,7 +159,7 @@ class LLM:
             time.sleep(0.05)
         end = time.time()
         logger.info(
-            f"[Detail output]: {detail_output_box[-1][1]} ,time cost: {end-start}")
+            f"[Detail output (task_ID: {summary_task_id}]: {detail_output_box[-1][1]} ,time cost: {end-start}")
         yield "", detail_output_box, summary_output_box, gr.update(visible=True), ""
 
         logger.info("All tasks completed.")

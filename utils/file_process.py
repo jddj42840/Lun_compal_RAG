@@ -1,4 +1,5 @@
 import csv
+from math import log
 import os
 import re
 import json
@@ -69,11 +70,14 @@ class File_process:
                 document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}{file_extension}"\n**********\n\n"""
                 csv_data = []
                 for index, row in df.iterrows():
-                    qa_text = ""
-                    qa_text += f"Question: {row['Q']}\n"
-                    qa_text += f"Answer: {row['A']}\n"
-                    if "Reference" in row:
-                        qa_text += f"Reference: {row['Reference']}\n\n"
+                    try:
+                        qa_text = ""
+                        qa_text += f"Question: {row['Q']}\n"
+                        qa_text += f"Answer: {row['A']}\n"
+                        if "Reference" in row:
+                            qa_text += f"Reference: {row['Reference']}\n\n"
+                    except Exception as e:
+                        logger.error(f"csv file not match the format. Reason: {str(e)}")
                     csv_data.append(document_prefix + qa_text)
 
                 for index in range(len(embedding_model_list)):
@@ -112,13 +116,14 @@ class File_process:
                                 "/", "_"),
                             documents=[document_prefix + text])
 
+            logger.info(f"Upload {full_file_name} success.")
             config_info["uploaded_file"].append(full_file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
 
         gr.Info("上傳成功")
         yield "上傳成功"
 
-    def save_answer(choice: str, text_dropdown: str, detail_output_box: list, summary_output_box: list,
+    def save_answer(choice: str, text_dropdown: str, detail_output_box: list, summary_output_box: list, 
                     embed_model: str, topk: str, score_threshold: float, temperature: str):
         if choice == "Yes":
             if len(detail_output_box) == 0:
@@ -138,6 +143,7 @@ class File_process:
                 csv = pd.concat(
                     [csv, pd.DataFrame(data, index=[0])], ignore_index=True)
             csv.to_csv("./standard_response.csv", index=False)
+            logger.info("Save answer success.")
             yield gr.update(visible=False), "已儲存回答."
         else:
             yield gr.update(visible=False), "", detail_output_box, summary_output_box, "產生新的答案..."
