@@ -1,10 +1,13 @@
-langchain
-langchain_community 
-langchain-openai
-qdrant-client 
-docker 
-python-dotenv
-gradio
-paramiko # for ssh remote
-fastembed
-pypdf2
+langchain==0.1.17
+langchain_community==0.0.36
+langchain-openai==0.1.5
+qdrant-client==1.9.0
+requests==2.31.0
+python-dotenv==1.0.1
+gradio==4.28.3
+paramiko==3.4.0 # for ssh remote
+fastembed==0.2.7
+pypdf2==3.0.1
+celery==5.4.0
+redis==5.0.6
+fuzzywuzzy==0.18.0

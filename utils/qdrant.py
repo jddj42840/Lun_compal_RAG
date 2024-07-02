@@ -1,7 +1,6 @@
 import os
-import time
-import docker
-import gradio as gr
+import sys
+import requests
 import pandas as pd
 from utils.logging_colors import logger
 from qdrant_client import QdrantClient, models
@@ -15,32 +14,17 @@ embedding_model_list = ['BAAI/bge-small-zh-v1.5', 'intfloat/multilingual-e5-larg
 
 class Qdrant:
     def qdrant_start_db() -> None :
+        # check qdrant connection
         try:
-            client = docker.DockerClient(base_url=os.getenv("DOCKER_SOCKET_URL", f"unix:///home/{os.getlogin()}/.docker/desktop/docker.sock"))
+            requests.get(os.getenv("QDRANT_URL", "http://192.168.1.72:6333"),
+                    timeout=(10, None))
+            logger.info("Qdrant connect success.")
+        except requests.exceptions.ConnectionError:
+            logger.error("Qdrant connect refuse.")
+            sys.exit(1)
         except Exception as e:
-            logger.error("Failed to start Qdrant container, Error: " + str(e))
-            gr.Error("無法啟動Qdrant容器.")
-            return False
-        
-        if client.containers.list(all=True, filters={"name": ["qdrant"]}) == []:
-            logger.info("container not exist, creating container...")
-            try:
-                client.containers.run(
-                    "qdrant/qdrant:latest",
-                    name="qdrant",
-                    ports={"6333/tcp": 6333, "6334/tcp": 6334},
-                    detach=True,
-                    volumes={f"{os.getcwd()}/qdrant_data": {"bind": "/qdrant/storage", "mode": "rw"}}
-                )
-            except Exception as e:
-                logger.error("Failed to start Qdrant container, Error: " + str(e))
-                gr.Error("無法啟動Qdrant容器.")
-                return False
-            
-        else:
-            logger.info("found exist qdrant container, starting container...")
-            client.containers.get("qdrant").start()
-            time.sleep(5)
+            logger.error(f"Qdrant connection failed. Reason: {str(e)}")
+            sys.exit(1)
         
         collection_list = []
         collections = qdrant_client.get_collections()
@@ -55,7 +39,7 @@ class Qdrant:
                     collection_name=collection_name.replace("/", "_"),
                     vectors_config=qdrant_client.get_fastembed_vector_params(),
                     optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000),
-                    hnsw_config=models.HnswConfigDiff(on_disk=True, m=48, ef_construct=100)
+                    hnsw_config=models.HnswConfigDiff(on_disk=True, m=64)
                 )
         
         if not os.path.exists("./standard_response.csv"):

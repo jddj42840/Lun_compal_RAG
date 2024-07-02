@@ -26,6 +26,22 @@ if __name__ == "__main__":
 
 ---
 
+## Celery
+
+啟動 Celery 工作指令
+
+```bash
+celery -A utils.llm worker -l info
+```
+
+---
+
+## Docker compose
+
+未實做
+
+---
+
 檔案轉換 目前僅支援 ppt, pptx, pdf, xlsx, csv 格式
 
 xlsx 可能因為排版等等原因導致轉換成 pdf 的過程中遺漏一些資訊
