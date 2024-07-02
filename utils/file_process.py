@@ -1,5 +1,3 @@
-import csv
-from math import log
 import os
 import re
 import json
@@ -30,10 +28,12 @@ class File_process:
                 gr.Info(f"{full_file_name} 已經上傳過了，略過此檔案。")
                 continue
 
-            yield f"Processing {full_file_name}"
+            yield f"處理 {full_file_name} 中"
+            
             # 處理不同的副檔格式
             if file_extension == '.pdf':
                 pass
+            
             elif file_extension == '.ppt' or file_extension == '.pptx':
                 gr.Info(
                     "Detect ppt or pptx extension. Please wait for converting...")
@@ -47,6 +47,7 @@ class File_process:
                     gr.Warning(f"錯誤: {str(e)}")
                     yield f"異常錯誤, 請檢查檔案完整性。"
                     return False
+                
             elif file_extension == ".xlsx":
                 """
                 轉換規則
@@ -55,42 +56,59 @@ class File_process:
                 """
                 gr.Warning(
                     f"Detect {file_extension} extension. \nATTENTION, upload {file_extension} extension file may loss some information and response unexpected information.")
-                subprocess.Popen(["libreoffice", "--headless", "--invisible", "--convert-to", "pdf", file_path,
-                                 "--outdir", "pdf_output"], stdout=subprocess.PIPE, stderr=subprocess.PIPE).wait()
+                subprocess.Popen(
+                    ["libreoffice", "--headless", "--invisible", "--convert-to", "pdf", 
+                    file_path,
+                    "--outdir", "pdf_output"], 
+                    stdout=subprocess.PIPE, 
+                    stderr=subprocess.PIPE
+                ).wait()
                 file_path = os.path.join(
-                    "pdf_output", full_file_name.replace(file_extension, ".pdf"))
+                    "pdf_output", 
+                    full_file_name.replace(file_extension, ".pdf")
+                )
+                
             elif file_extension == ".csv":
                 """
-                資料格式如下
-                Q,A,Reference
-                <問題>,<答案>,<參考資料>
+                // A(summary) 可有可無
+                資料格式如下 
+                Q,A(detail),A(summary) 
+                <問題>,<詳細答案>,<摘要答案>
                 ...
                 """
-                df = pd.read_csv(file_path, on_bad_lines='skip')
+                upload_df = pd.read_csv(file_path, on_bad_lines='skip')
                 document_prefix = f"""**********\n[段落資訊]\n檔案名稱:"{file_name}{file_extension}"\n**********\n\n"""
-                csv_data = []
-                for index, row in df.iterrows():
-                    try:
-                        qa_text = ""
-                        qa_text += f"Question: {row['Q']}\n"
-                        qa_text += f"Answer: {row['A']}\n"
-                        if "Reference" in row:
-                            qa_text += f"Reference: {row['Reference']}\n\n"
-                    except Exception as e:
-                        logger.error(f"csv file not match the format. Reason: {str(e)}")
-                    csv_data.append(document_prefix + qa_text)
-
-                for index in range(len(embedding_model_list)):
-                    qdrant_client.set_model(
-                        embedding_model_list[index], cache_dir="./.cache")
-                    qdrant_client.add(
-                        collection_name=embedding_model_list[index].replace(
-                            "/", "_"),
-                        documents=csv_data)
+                
+                answer_csv = pd.read_csv("./standard_response.csv", on_bad_lines='skip')
+                for index, row in upload_df.iterrows():
+                    if "Q" not in row or "A(detail)" not in row:
+                        logger.error("csv file not match the format.")
+                        gr.Warning("csv檔案格式不符合，略過此檔案。")
+                        break
+                        
+                    if row["Q"] in answer_csv["Q"].values:
+                        answer_csv.loc[answer_csv["Q"] == row["Q"], ["A(detail)"]] = [row["A(detail)"]]
+                        if "A(summary)" in row:
+                            answer_csv.loc[answer_csv["Q"] == row["Q"], ["A(summary)"]] = [row["A(summary)"]]
+                        answer_csv.to_csv("./standard_response.csv", index=False)
+                        continue
+                    else:
+                        data = {
+                            "Q": row["Q"],
+                            "A(detail)": row["A(detail)"],
+                        }
+                        if "A(summary)" in row:
+                            data["A(summary)"] = row["A(summary)"]
+                    
+                        answer_csv = pd.concat([answer_csv, pd.DataFrame(data, index=[0])], ignore_index=True)
+                        answer_csv.to_csv("./standard_response.csv", index=False)
+                yield "上傳成功"
+                config_info["uploaded_file"].append(full_file_name)
+                json.dump(config_info, open("config.json", "w", encoding="utf-8"))
                 continue
+            
             else:
-                logger.error(
-                    f"File {full_file_name} is not support. Ignore it...")
+                logger.error(f"File {full_file_name} is not support. Ignore it...")
                 gr.Warning(f"檔案 {full_file_name} 為不支援格式，略過此檔案。")
                 yield f"檔案 {full_file_name} 為不支援格式，略過此檔案。"
                 continue
@@ -114,7 +132,9 @@ class File_process:
                         qdrant_client.add(
                             collection_name=embedding_model_list[index].replace(
                                 "/", "_"),
-                            documents=[document_prefix + text])
+                            documents=[document_prefix + text],
+                            metadata=[{"filename": full_file_name}]
+                        )
 
             logger.info(f"Upload {full_file_name} success.")
             config_info["uploaded_file"].append(full_file_name)
@@ -146,8 +166,10 @@ class File_process:
             logger.info("Save answer success.")
             yield gr.update(visible=False), "已儲存回答."
         else:
+            if detail_output_box:
+                return True
             yield gr.update(visible=False), "", detail_output_box, summary_output_box, "產生新的答案..."
-            for _, detail, summary, _ in LLM.send_query(
+            for _, detail, summary, _, _ in LLM.send_query(
                 text_dropdown,
                 detail_output_box[-1][0],
                 detail_output_box,
@@ -178,19 +200,20 @@ class File_process:
         config_info = json.load(open("config.json", "r", encoding="utf-8"))
         for file_name in file_list:
             yield gr.update(value=False), gr.update()
-            qdrant_client.delete(
-                collection_name="another_page_test",
-                points_selector=models.FilterSelector(
-                    filter=models.Filter(
-                        must=[
-                            models.FieldCondition(
-                                key="filename",
-                                match=models.MatchValue(value=file_name),
-                            ),
-                        ],
+            for embed_model in embedding_model_list:
+                qdrant_client.delete(
+                    collection_name=embed_model.replace("/", "_"),
+                    points_selector=models.FilterSelector(
+                        filter=models.Filter(
+                            must=[
+                                models.FieldCondition(
+                                    key="filename",
+                                    match=models.MatchValue(value=file_name),
+                                ),
+                            ],
+                        )
                     )
                 )
-            )
             config_info["uploaded_file"].remove(file_name)
             json.dump(config_info, open("config.json", "w", encoding="utf-8"))
 
@@ -209,7 +232,7 @@ class File_process:
         return True
 
     def dataframe_on_select(gr_dataframe: gr.DataFrame, evt: gr.SelectData):
-        yield evt.value, evt.index[0], evt.index[1], gr.update(visible=True)
+        yield evt.value, evt.index[0], evt.index[1], gr.update(visible=True), gr.update(visible=True, value=f"已選擇第{str(int(evt.index[0])+1)}列第{str(int(evt.index[1])+1)}欄")
         return True
 
     def dataframe_save_csv(gr_dataframe: gr.DataFrame, edited_textbox: str,
@@ -230,3 +253,12 @@ class File_process:
         gr_dataframe.to_csv("./standard_response.csv", index=False)
         yield gr.update(value=File_process.dataframe_show())
         return True
+    
+    def dataframe_del_row(gr_dataframe: gr.DataFrame, select_row: str, select_col: str):
+        if select_row == "":
+            return False
+        gr_dataframe = gr_dataframe.drop(int(select_row))
+        gr_dataframe.to_csv("./standard_response.csv", index=False)
+        yield gr.update(value=File_process.dataframe_show()), gr.update(visible=False), gr.update(visible=False), "", ""
+        return True
+

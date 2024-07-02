@@ -1,9 +1,7 @@
 import os
 import sys
 import requests
-import gradio as gr
 import pandas as pd
-from sympy import EX
 from utils.logging_colors import logger
 from qdrant_client import QdrantClient, models
 
@@ -19,7 +17,8 @@ class Qdrant:
         # check qdrant connection
         try:
             requests.get(os.getenv("QDRANT_URL", "http://192.168.1.72:6333"),
-                    timeout=(10, None)).status_code != 200
+                    timeout=(10, None))
+            logger.info("Qdrant connect success.")
         except requests.exceptions.ConnectionError:
             logger.error("Qdrant connect refuse.")
             sys.exit(1)
@@ -40,7 +39,7 @@ class Qdrant:
                     collection_name=collection_name.replace("/", "_"),
                     vectors_config=qdrant_client.get_fastembed_vector_params(),
                     optimizers_config=models.OptimizersConfigDiff(memmap_threshold=20000),
-                    hnsw_config=models.HnswConfigDiff(on_disk=True, m=48, ef_construct=100)
+                    hnsw_config=models.HnswConfigDiff(on_disk=True, m=64)
                 )
         
         if not os.path.exists("./standard_response.csv"):
